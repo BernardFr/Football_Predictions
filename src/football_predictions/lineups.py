@@ -35,7 +35,7 @@ def player_table(client, slug: str, events: pd.DataFrame, team_map: pd.DataFrame
     ids = dict(zip(team_map.espn_id, team_map.fd_name))
     frames = []
     for e in events[events.state == "post"].itertuples(index=False):
-        lu = parse_lineups(client.summary(slug, e.event_id), e.event_id)
+        lu = parse_lineups(client.summary(slug, e.event_id), str(e.event_id))
         if not has_lineups(lu):
             continue
         frames.append(lu.assign(date=e.date, season=e.season))

@@ -151,7 +151,7 @@ def write_excel(path: Path, title: str, table: pd.DataFrame, grd: pd.DataFrame, 
             chart.series[-1].graphicalProperties.line.noFill = True
         chart.set_categories(Reference(ws, min_col=1, min_row=3, max_row=2 + n))
         chart.gapWidth, chart.overlap = 40, 0
-        chart.width, chart.height = max(30, 0.9 * n), 12
+        chart.width, chart.height = max(30, round(0.9 * n)), 12
         chart.legend.position = "b"
         ws.add_chart(chart, f"A{n + 6}")
 

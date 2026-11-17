@@ -17,6 +17,7 @@ import json
 import sys
 from datetime import date
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -138,7 +139,7 @@ class Run:
             return fx
         rows = []
         for r, adj in zip(fx.itertuples(index=False), self._adjustments(fx)):
-            p = model.predict(r.home, r.away, adjust=adj)
+            p = model.predict(str(r.home), str(r.away), adjust=adj)
             unseen = [t for t in (r.home, r.away) if t not in model.team_index]
             if unseen:
                 print(f"  warning: no history for {unseen}; using a typical promoted-team rating")
@@ -189,7 +190,7 @@ class Run:
                 continue
             if (h, a) in have:
                 continue
-            rows.append({"date": e.date.normalize(), "season": self.season, "div": self.top, "home": h, "away": a,
+            rows.append({"date": cast(pd.Timestamp, e.date).normalize(), "season": self.season, "div": self.top, "home": h, "away": a,
                          "hg": np.nan, "ag": np.nan, "odds_h": np.nan, "odds_d": np.nan, "odds_a": np.nan,
                          "schedule": "espn"})
         if unmapped:
@@ -237,7 +238,7 @@ class Run:
         return EspnClient(self.cfg.data_dir, lc.get("user_agent", DEFAULT_UA), float(lc.get("delay_seconds", 0.4)),
                           now=self.now)
 
-    def _lineup_model(self, client):
+    def _lineup_model(self, client) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, np.ndarray]:
         """Sync ESPN, map teams, build features, walk-forward the adjustment. Returns what predict needs."""
         lc = self.cfg.lineups
         seasons = [shift_season(self.season, -k) for k in range(int(lc.get("seasons", 2)) - 1, -1, -1)]
@@ -287,9 +288,10 @@ class Run:
             return
         got, waiting = {}, []
         for e in up.itertuples(index=False):
-            lu = parse_lineups(client.summary(self.league.espn, e.event_id, refresh=True), e.event_id)
+            event_id = str(e.event_id)
+            lu = parse_lineups(client.summary(self.league.espn, event_id, refresh=True), event_id)
             if has_lineups(lu):
-                got[e.event_id] = lu
+                got[event_id] = lu
             else:
                 waiting.append(f"{e.home_name} v {e.away_name} ({e.date:%a %H:%M} UTC)")
         if waiting:
@@ -299,15 +301,15 @@ class Run:
         feat = lineups.match_features(players, up[up.event_id.isin(got)], tm, lineups=got)
         rows = []
         for r in feat.itertuples(index=False):
-            base = model.predict(r.home, r.away)
-            row = pd.Series({**r._asdict(), "xg_home": base["xg_home"], "xg_away": base["xg_away"], "rho": base["rho"]})
+            base = model.predict(str(r.home), str(r.away))
+            row = pd.Series({**dict(zip(feat.columns, r)), "xg_home": base["xg_home"], "xg_away": base["xg_away"], "rho": base["rho"]})
             e = lineups.enhance(row, b, self.hyper().max_goals)
             rows.append({"date": r.date, "season": r.season, "home": r.home, "away": r.away, **e,
                          "base_p_home": base["p_home"], "base_p_draw": base["p_draw"], "base_p_away": base["p_away"],
                          **{k: getattr(r, k) for k in ("h_miss", "h_att", "h_gk", "a_miss", "a_att", "a_gk")}})
         out = pd.DataFrame(rows)
         out.to_csv(self.state / "lineup_upcoming.csv", index=False)
-        ledger.record(self.state / "ledger.csv", out.drop(columns=[c for c in out if c.startswith(("base_", "h_", "a_"))]),
+        ledger.record(self.state / "ledger.csv", out.drop(columns=[c for c in out if str(c).startswith(("base_", "h_", "a_"))]),
                       variant="lineup")
         print(f"\nLineup-adjusted predictions ({len(out)}):")
         show = out.assign(

@@ -1,12 +1,13 @@
 """Load src/football_predictions.toml into typed objects."""
 
+import sys
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-try:
+if sys.version_info >= (3, 11):
     import tomllib
-except ModuleNotFoundError:  # Python 3.10
+else:  # Python 3.10
     import tomli as tomllib
 
 

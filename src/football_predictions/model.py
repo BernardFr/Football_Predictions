@@ -13,10 +13,11 @@ probabilities of 0-0, 1-0, 0-1 and 1-1, is fitted on top-division matches.
 """
 
 from dataclasses import asdict, dataclass
+from typing import cast
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import minimize, minimize_scalar
+from scipy.optimize import OptimizeResult, minimize, minimize_scalar
 from scipy.stats import poisson
 
 
@@ -66,7 +67,7 @@ def summarize(lam: float, mu: float, rho: float, max_goals: int = 10) -> dict:
     hi = int(gd_vals[np.searchsorted(cdf, 0.90)])
     x, y = np.unravel_index(p.argmax(), p.shape)
     probs = {"H": p_h, "D": p_d, "A": p_a}
-    pick = max(probs, key=probs.get)
+    pick = max(probs, key=probs.__getitem__)
     return {
         "xg_home": float(lam), "xg_away": float(mu),
         "p_home": float(p_h), "p_draw": float(p_d), "p_away": float(p_a),
@@ -160,8 +161,8 @@ class DixonColes:
         lam_h = np.exp(mu[dv] + ha[dv] + att[hi] - de[ai])[top]
         lam_a = np.exp(mu[dv] + att[ai] - de[hi])[top]
         x, yy, wt = m.hg.to_numpy()[top], m.ag.to_numpy()[top], w[top]
-        r = minimize_scalar(lambda p: -np.sum(wt * np.log(_tau(x, yy, lam_h, lam_a, p))),
-                            bounds=(-0.25, 0.25), method="bounded")
+        r = cast(OptimizeResult, minimize_scalar(lambda p: -np.sum(wt * np.log(_tau(x, yy, lam_h, lam_a, p))),
+                                                 bounds=(-0.25, 0.25), method="bounded"))
         self.rho = float(r.x)
         self.n_matches = int(len(m))
         self.converged = bool(res.success)

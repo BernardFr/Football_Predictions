@@ -10,6 +10,7 @@ import unicodedata
 from collections import Counter, defaultdict
 from difflib import SequenceMatcher
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 
@@ -58,20 +59,22 @@ def build(espn_events: pd.DataFrame, fd_matches: pd.DataFrame, overrides: Path |
     fd = fd_matches.assign(day=fd_matches.date.dt.normalize())
     by_day = {d: g for d, g in fd.groupby("day")}
     for e in espn_events.itertuples(index=False):
-        names[e.home_id], names[e.away_id] = e.home_name, e.away_name
-        day = pd.Timestamp(e.date).normalize()
+        home_id, away_id = str(e.home_id), str(e.away_id)
+        home_name, away_name = str(e.home_name), str(e.away_name)
+        names[home_id], names[away_id] = home_name, away_name
+        day = cast(pd.Timestamp, e.date).normalize()
         near = [by_day[d] for d in (day - pd.Timedelta(days=1), day, day + pd.Timedelta(days=1)) if d in by_day]
         if not near:
             continue
         cands = pd.concat(near)
-        scores = [(similarity(e.home_name, r.home) + similarity(e.away_name, r.away), r.home, r.away)
+        scores = [(similarity(home_name, str(r.home)) + similarity(away_name, str(r.away)), str(r.home), str(r.away))
                   for r in cands.itertuples(index=False)]
         scores.sort(reverse=True)
         best = scores[0]
         second = scores[1][0] if len(scores) > 1 else 0.0
         if best[0] >= 0.8 and best[0] - second >= 0.15:
-            votes[e.home_id][best[1]] += 1
-            votes[e.away_id][best[2]] += 1
+            votes[home_id][best[1]] += 1
+            votes[away_id][best[2]] += 1
     rows = [{"espn_id": k, "espn_name": names.get(k), "fd_name": c.most_common(1)[0][0],
              "votes": c.most_common(1)[0][1], "total": sum(c.values())} for k, c in votes.items()]
     tm = pd.DataFrame(rows, columns=["espn_id", "espn_name", "fd_name", "votes", "total"])

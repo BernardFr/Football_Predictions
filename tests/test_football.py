@@ -75,9 +75,9 @@ def test_walk_forward_has_no_lookahead():
     first = out.date.min()
     m = DixonColes(Hyper()).fit(df, first, "D1")
     r0 = out[out.date == first].iloc[0]
-    assert m.predict(r0.home, r0.away)["p_home"] == pytest.approx(r0.p_home)
+    assert m.predict(str(r0.home), str(r0.away))["p_home"] == pytest.approx(r0.p_home)
     s = metrics.summary(out)
-    assert s.loc[0, "rps"] < s.loc[1, "rps"]          # model beats base rate on synthetic data
+    assert s["rps"].iloc[0] < s["rps"].iloc[1]        # model beats base rate on synthetic data
 
 
 def test_football_data_parsing(tmp_path):
@@ -129,7 +129,7 @@ def test_score_histogram_tables():
     assert list(t.index) == ["0-0", "1-1", "2-0", "7-0"]
     assert t.loc["1-1", "2025-26 matches"] == 2 and t.loc["1-1", "2026-27 %"] == 0.5
     assert t.loc["1-1", "All seasons matches"] == 3 and t.loc["7-0", "goal difference"] == 7
-    assert t[[c for c in t if c.endswith("%")]].sum().round(9).eq(1).all()
+    assert t[[c for c in t if str(c).endswith("%")]].sum().round(9).eq(1).all()
     pooled = scoreline_table(m, ["2025-26", "2026-27"], top=1)
     assert pooled.scoreline.tolist() == ["1-1", "Other"] and pooled["All seasons matches"].tolist() == [3, 3]
     g = grid(m)

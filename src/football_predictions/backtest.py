@@ -6,7 +6,6 @@ This is the same refit-after-every-matchday loop the live `update` command runs.
 
 import itertools
 
-import numpy as np
 import pandas as pd
 
 from .metrics import outcome, rps, onehot
@@ -17,7 +16,10 @@ def base_rates(matches: pd.DataFrame, asof, top_div: str, seasons: int = 2) -> t
     m = matches[(matches.date < asof) & (matches["div"] == top_div)]
     m = m[m.date >= pd.Timestamp(asof) - pd.DateOffset(years=seasons)]
     r = outcome(m.hg, m.ag)
-    return tuple(float((r == o).mean()) for o in ("H", "D", "A")) if len(r) else (0.45, 0.25, 0.30)
+    if not len(r):
+        return 0.45, 0.25, 0.30
+    p_h, p_d, p_a = (float((r == o).mean()) for o in ("H", "D", "A"))
+    return p_h, p_d, p_a
 
 
 def walk_forward(matches: pd.DataFrame, season: str, top_div: str, hyper: Hyper,
@@ -35,7 +37,7 @@ def walk_forward(matches: pd.DataFrame, season: str, top_div: str, hyper: Hyper,
             continue
         b = base_rates(matches, asof, top_div)
         for r in g.itertuples(index=False):
-            p = model.predict(r.home, r.away)
+            p = model.predict(str(r.home), str(r.away))
             rows.append({"date": r.date, "season": r.season, **p, "hg": r.hg, "ag": r.ag,
                          "odds_h": r.odds_h, "odds_d": r.odds_d, "odds_a": r.odds_a,
                          "p_base_h": b[0], "p_base_d": b[1], "p_base_a": b[2],

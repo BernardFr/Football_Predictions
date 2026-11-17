@@ -163,8 +163,13 @@ def parse_scoreboard(data: dict) -> list[dict]:
 
         def first_two_periods(c):
             vals = [x.get("value") for x in (c.get("linescores") or []) if isinstance(x, dict)]
+            if len(vals) < 2:
+                return None
+            first, second = vals[0], vals[1]
+            if first is None or second is None:
+                return None
             try:
-                return int(vals[0]) + int(vals[1]) if len(vals) >= 2 else None
+                return int(first) + int(second)
             except (TypeError, ValueError):
                 return None
 
@@ -229,9 +234,10 @@ def _sub_minute(p: dict, key: str) -> int | None:
 def _stat(p: dict, *names) -> float:
     stats = {s.get("name"): s.get("value") for s in p.get("stats", []) if isinstance(s, dict)}
     for n in names:
-        if stats.get(n) is not None:
+        value = stats.get(n)
+        if value is not None:
             try:
-                return float(stats[n])
+                return float(value)
             except (TypeError, ValueError):
                 pass
     return 0.0
@@ -268,4 +274,4 @@ def has_lineups(lineups: pd.DataFrame) -> bool:
     if lineups.empty:
         return False
     counts = lineups[lineups.starter].groupby("team_id").size()
-    return len(counts) == 2 and (counts >= 11).all()
+    return len(counts) == 2 and bool((counts >= 11).all())

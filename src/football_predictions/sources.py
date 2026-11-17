@@ -77,8 +77,8 @@ class FootballData:
             "date": pd.to_datetime(df["Date"], dayfirst=True, errors="coerce"),
             "season": season, "div": div,
             "home": df["HomeTeam"].str.strip(), "away": df["AwayTeam"].str.strip(),
-            "hg": pd.to_numeric(df.get("FTHG"), errors="coerce") if played else np.nan,
-            "ag": pd.to_numeric(df.get("FTAG"), errors="coerce") if played else np.nan,
+            "hg": pd.to_numeric(df["FTHG"], errors="coerce") if played else np.nan,
+            "ag": pd.to_numeric(df["FTAG"], errors="coerce") if played else np.nan,
         })
         out = pd.concat([out, self._odds(df)], axis=1)
         return out.dropna(subset=["date"])[COLUMNS].reset_index(drop=True)

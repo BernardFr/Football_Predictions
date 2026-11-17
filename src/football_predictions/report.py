@@ -92,7 +92,7 @@ def write(path: Path, league_name: str, upcoming, backtest, season, ledger, rati
                 "Adjusted for announced XIs. miss = share of usual playing time missing; att = log attacking "
                 "output vs usual; gk = regular keeper not starting (h = home, a = away)", lu)])
         if lineup_comparison is not None and not lineup_comparison.empty:
-            frames = [("Walk-forward test: base model vs. lineup-adjusted, same matches (lower RPS is better)",
+            frames: list[tuple[str | None, pd.DataFrame]] = [("Walk-forward test: base model vs. lineup-adjusted, same matches (lower RPS is better)",
                        lineup_comparison)]
             if lineup_coefs:
                 frames.append(("Fitted effects on log expected goals (latest fit)",

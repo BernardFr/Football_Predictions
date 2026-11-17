@@ -137,7 +137,7 @@ def test_end_to_end_recovers_lineup_effects(tmp_path):
 
     # base model = true strengths without lineup effects (what a team-strength model knows)
     base = fd.assign(xg_home=fd.true_xh, xg_away=fd.true_xa, rho=0.0, result=outcome(fd.hg, fd.ag))
-    probs = pd.DataFrame([summarize(r.xg_home, r.xg_away, 0.0) for r in base.itertuples()])
+    probs = pd.DataFrame([summarize(h, a, 0.0) for h, a in zip(base.xg_home, base.xg_away)])
     base = pd.concat([base, probs[["p_home", "p_draw", "p_away", "pick", "confidence", "exp_gd", "gd_lo80", "gd_hi80"]]], axis=1)
 
     ev, b = lineups.walk_forward(feat, base, ridge=1.0, min_train=100)
@@ -146,7 +146,8 @@ def test_end_to_end_recovers_lineup_effects(tmp_path):
     assert coef["gk_opp"] > 0.1            # opponent's backup keeper -> more goals
     comp = lineups.compare(ev).set_index(["season", "forecaster"])
     # out-of-sample goals are predicted better; W/D/L scores need far more matches to show it
-    assert comp.loc[("all", "with lineups"), "goal_loglik"] > comp.loc[("all", "base model"), "goal_loglik"]
+    goal_loglik = comp["goal_loglik"]
+    assert goal_loglik[("all", "with lineups")] > goal_loglik[("all", "base model")]
 
 
 def test_ledger_variants(tmp_path):

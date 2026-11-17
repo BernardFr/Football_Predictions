@@ -1,5 +1,7 @@
 # Usage
 
+**Web page: https://bernardfr.github.io/Football_Predictions/**
+
 ```python
 cd ~/Documents/Code/Football_Predictions
 football-predictions update
@@ -354,4 +356,11 @@ football-score-histogram
 I tested it on the incomplete GitHub copy of the results, which is why I haven't quoted any numbers. That copy shows no 0-0 draws at all in 2025-26, which is almost certainly a gap in that data, so check the figures on your Mac's football-data run instead. All 19 tests pass, including a new one for the histogram tables.
 
 *Modify the chart so that each of the 3 seasons can be individually selected, or in combination - add histogram for all 3 seasons combined - change the display order to rank, left to right, most severe defeat for home team to biggest victory for home team - for scores that have the same goal difference (e.g. 2-1 and 1-0) put the highest total score left for defeats and highest total score right for home victories: e.g 1-2, 0-1, ... , 1-0, 2-1, ...*
+
+- **Choosing seasons:** the script now also writes an interactive chart, `reports/EPL_score_histogram.html`, which you open in a browser. It has a checkbox for each season and one for “All seasons combined”, in any combination, plus All / None buttons and a switch between % of matches and match counts. Hovering over a bar shows, for example, “2-1: 9.5% (74 of 778 matches)”.
+- **Combined histogram:** “All seasons combined” is now a series in all three files.
+  - **HTML chart:** an orange series alongside the three seasons.
+  - **Excel chart:** a fourth series. Excel’s chart filter button shows or hides any of them.
+  - **PNG:** the combined histogram is drawn as orange bars, with each season as a dot, since 37 groups of four bars would be unreadable in a static image.
+- **Order:** scores now run from the heaviest home defeat on the left to the biggest home win on the right, with your tie-break. On the test data the sequence is 0-6, 0-5, 2-6, 1-5, 0-4 … 2-3, 1-2, 0-1, 0-0, 1-1, 2-2, 3-3, 4-4, 1-0, 2-1, 3-2 … 5-0, 7-0. The draws are shaded, and the chart labels the home-defeat and home-win sides.
 
