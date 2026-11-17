@@ -1,0 +1,6 @@
+{
+  "half_life_days": 240,
+  "ridge": 3.0,
+  "feeder_weight": 0.5,
+  "max_goals": 10
+}

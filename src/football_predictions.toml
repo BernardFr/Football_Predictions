@@ -1,0 +1,86 @@
+# Football_Predictions configuration (src/football_predictions.toml)
+#
+# One generic model, fitted separately for each league. Each league lists its top division
+# (the one predicted) first, then feeder divisions whose data place promoted teams on the
+# same rating scale.
+
+[general]
+source = "football_data"   # "football_data" (results + bookmaker odds) or "openfootball" (GitHub, results only)
+data_dir = "../data"       # folders are relative to this file, so ../ puts them in the project folder
+state_dir = "../state"
+reports_dir = "../reports"
+history_seasons = 2        # full past seasons fitted, in addition to the current season
+upcoming_days = 10         # how far ahead to look for upcoming fixtures
+
+[model]                    # defaults; `tune` writes per-league values to state/<league>/hyper.json
+half_life_days = 180       # a match this old counts half as much as one played today
+ridge = 1.0                # shrinks team ratings toward average; matters most for teams with little data
+feeder_weight = 1.0        # weight of second-division matches relative to top-division ones
+cup_weight = 0.5           # weight of cup games (see `cups` under each league); 0 = ignore cups
+max_goals = 10
+
+[confidence]               # bands on the probability of the picked outcome
+high = 0.60
+medium = 0.45
+
+[lineups]                  # starting-XI enhancement, from ESPN's public feed (no key)
+user_agent = "football-predictions/1.0 (+personal research; Python requests)"
+delay_seconds = 0.4        # pause between ESPN requests; first download is ~1,000 requests, cached after
+seasons = 2                # current + previous season of lineups (training data for the adjustment)
+ridge = 5.0                # shrinks lineup effects toward zero
+min_train_matches = 150
+espn_schedule = true       # predict games from ESPN's schedule when football-data hasn't listed them yet
+
+[tune]                     # grid searched by `tune` on the previous full season
+half_life_days = [150, 240, 365]
+ridge = [1.0, 3.0, 10.0]
+feeder_weight = [0.25, 0.5]
+cup_weight = [0.0, 0.5, 1.0]   # 54 combinations in all, a few minutes
+
+# current_season: "auto" (Aug-Jul seasons: from July on, the season starting this year) or e.g. "2026-27"
+
+[[leagues]]
+key = "EPL"
+name = "English Premier League"
+current_season = "auto"
+enabled = true
+football_data = ["E0", "E1"]
+openfootball = ["en.1", "en.2"]
+espn = "eng.1"
+cups = ["eng.fa", "eng.league_cup", "eng.charity"]   # FA Cup, EFL Cup, Community Shield (ESPN slugs)
+
+[[leagues]]
+key = "BUN"
+name = "German Bundesliga"
+current_season = "auto"
+enabled = false
+football_data = ["D1", "D2"]
+openfootball = ["de.1", "de.2"]
+espn = "ger.1"
+
+[[leagues]]
+key = "LAL"
+name = "Spanish La Liga"
+current_season = "auto"
+enabled = false
+football_data = ["SP1", "SP2"]
+openfootball = ["es.1", "es.2"]
+espn = "esp.1"
+
+[[leagues]]
+key = "SA"
+name = "Italian Serie A"
+current_season = "auto"
+enabled = false
+football_data = ["I1", "I2"]
+openfootball = ["it.1", "it.2"]
+espn = "ita.1"
+
+[[leagues]]
+key = "L1"
+name = "French Ligue 1"
+current_season = "auto"
+enabled = false
+football_data = ["F1", "F2"]
+openfootball = ["fr.1", "fr.2"]
+espn = "fra.1"

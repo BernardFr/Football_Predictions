@@ -1,0 +1,2 @@
+# Installs this project (editable) with its dependencies and pytest; same as: pip install -e ".[test]"
+-e .[test]
