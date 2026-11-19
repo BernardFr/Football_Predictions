@@ -118,16 +118,20 @@ def calibration(df: pd.DataFrame, bins: int = DEFAULT_CALIBRATION_BINS) -> pd.Da
 
 def team_vs_prediction(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Per team: actual wins, losses and goal difference vs. what the model expected before each game.
+    Per team: goals for and against, plus actual wins, losses and goal difference vs. what the model
+    expected before each game.
     Expected wins/losses are the summed pre-match probabilities; expected GD is the summed exp_gd.
     """
     home = pd.DataFrame({"team": df.home, "win": df.hg > df.ag, "loss": df.hg < df.ag,
-                         "p_win": df.p_home, "p_loss": df.p_away, "gd": df.hg - df.ag, "exp_gd": df.exp_gd})
+                         "p_win": df.p_home, "p_loss": df.p_away, "gf": df.hg, "ga": df.ag,
+                         "gd": df.hg - df.ag, "exp_gd": df.exp_gd})
     away = pd.DataFrame({"team": df.away, "win": df.ag > df.hg, "loss": df.ag < df.hg,
-                         "p_win": df.p_away, "p_loss": df.p_home, "gd": df.ag - df.hg, "exp_gd": -df.exp_gd})
+                         "p_win": df.p_away, "p_loss": df.p_home, "gf": df.ag, "ga": df.hg,
+                         "gd": df.ag - df.hg, "exp_gd": -df.exp_gd})
     games = pd.concat([home, away], ignore_index=True)
     table = games.groupby("team").agg(games=("win", "size"), wins=("win", "sum"), exp_wins=("p_win", "sum"),
                                       losses=("loss", "sum"), exp_losses=("p_loss", "sum"),
+                                      goals_for=("gf", "sum"), goals_against=("ga", "sum"),
                                       gd=("gd", "sum"), exp_gd=("exp_gd", "sum")).reset_index()
     return table.assign(wins_vs_pred=table.wins - table.exp_wins,
                         losses_vs_pred=table.losses - table.exp_losses,

@@ -74,7 +74,7 @@ def test_highest_prob_scorelines_ranked_by_probability():
     grid = np.array([[0.10, 0.05], [0.30, 0.55]])
     assert highest_prob_scorelines(grid, 3) == ["1-1 55%", "1-0 30%", "0-0 10%"]
     pred = summarize(1.7, 1.0, -0.05)
-    assert HIGHEST_PROB_SCORE_COLS == ["highest_prob_scores_1", "highest_prob_scores_2", "highest_prob_scores_3"]
+    assert HIGHEST_PROB_SCORE_COLS == ["highest_prob_score_1", "highest_prob_score_2", "highest_prob_score_3"]
     scores = [pred[col] for col in HIGHEST_PROB_SCORE_COLS]
     assert len(scores) == 3 and scores[0] == f"{pred['likely_score']} {pred['p_likely_score']:.0%}"
     probs = [int(score.split()[1].rstrip("%")) for score in scores]
@@ -213,7 +213,16 @@ def test_team_vs_prediction_and_stats_tables():
     assert table.loc["A", "gd_vs_pred"] == pytest.approx(6.0)
     # C: lost once, expected losses 0.5 (vs B, away) + 0.2 (vs A, home)
     assert table.loc["C", "losses_vs_pred"] == pytest.approx(0.3)
+    # goals: A scored 2 + 3, conceded 0 + 1; B scored 0 + 0, conceded 2 + 0
+    assert (table.loc["A", "goals_for"], table.loc["A", "goals_against"]) == (5, 1)
+    assert (table.loc["B", "goals_for"], table.loc["B", "goals_against"]) == (0, 2)
     frames = stats_frames(games, "Test", top_n=2)
-    assert len(frames) == 6 and all(len(df) == 2 for _, df in frames)
+    assert len(frames) == 10 and all(len(df) == 2 for _, df in frames)
+    best_attack, best_defence = frames[6][1], frames[7][1]
+    assert best_attack.team.iloc[0] == "A" and best_attack.goals_for.is_monotonic_decreasing
+    assert best_defence.team.iloc[0] == "A" and best_defence.goals_against.is_monotonic_increasing
+    worst_attack, worst_defence = frames[8][1], frames[9][1]
+    assert worst_attack.team.iloc[0] == "B" and worst_attack.goals_for.is_monotonic_increasing
+    assert worst_defence.goals_against.is_monotonic_decreasing
     assert frames[0][1].team.iloc[0] == "A" and frames[4][1].team.iloc[0] == "A"
     assert frames[1][1].wins_vs_pred.is_monotonic_increasing

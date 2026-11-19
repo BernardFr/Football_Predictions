@@ -40,6 +40,10 @@ STATS_RANKINGS = [
     ("Lost more games than predicted", "losses_vs_pred", True, ["losses", "exp_losses"]),
     ("Goal difference above prediction", "gd_vs_pred", True, ["gd", "exp_gd"]),
     ("Goal difference below prediction", "gd_vs_pred", False, ["gd", "exp_gd"]),
+    ("Best attack (most goals scored)", "goals_for", True, ["goals_against"]),
+    ("Best defence (fewest goals conceded)", "goals_against", False, ["goals_for"]),
+    ("Worst attack (fewest goals scored)", "goals_for", False, ["goals_against"]),
+    ("Worst defence (most goals conceded)", "goals_against", True, ["goals_for"]),
 ]
 
 
@@ -93,8 +97,8 @@ def display_predictions(df: pd.DataFrame, high: float, medium: float) -> pd.Data
 
 def stats_frames(backtest: pd.DataFrame, label: str, top_n: int = STATS_TOP_N) -> list[tuple[str | None, pd.DataFrame]]:
     """
-    Top-n teams that beat (or fell short of) the model's walk-forward pre-match predictions,
-    one table per ranking in STATS_RANKINGS.
+    Top-n teams per ranking in STATS_RANKINGS: teams that beat (or fell short of) the model's
+    walk-forward pre-match predictions, then best and worst attack and defence.
     """
     table = metrics.team_vs_prediction(backtest)
     frames: list[tuple[str | None, pd.DataFrame]] = []
