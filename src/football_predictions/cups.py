@@ -19,6 +19,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from custom_logger import custom_logger as logger
+
 from . import teammap
 from .espn import STATE_POST
 from .sources import COLUMNS, ODDS_COLS
@@ -28,9 +30,7 @@ EXTRA_COLUMNS = ["neutral", "competition"]   # cup rows carry these on top of th
 ERROR_SNIPPET_CHARS = 100                    # length of an error message quoted in a warning
 
 
-def load(client, slug_lst: list[str], season_lst: list[str], known_teams, team_map_path: Path | None = None,
-         log=print) -> pd.DataFrame:
-    log = log or (lambda *_: None)
+def load(client, slug_lst: list[str], season_lst: list[str], known_teams, team_map_path: Path | None = None) -> pd.DataFrame:
     tmap = {}
     if team_map_path is not None and Path(team_map_path).exists():
         map_df = pd.read_csv(team_map_path, dtype=str)
@@ -50,10 +50,10 @@ def load(client, slug_lst: list[str], season_lst: list[str], known_teams, team_m
     for slug in slug_lst:
         for season in season_lst:
             try:
-                ev = client.sync_season(slug, season, log=None, summaries=False, every_day_fallback=False)
+                ev = client.sync_season(slug, season, summaries=False, every_day_fallback=False)
             except Exception as exc:  # noqa: BLE001 - cups are optional extra data
-                log(f"  warning: could not load {slug} {season} from ESPN ({type(exc).__name__}: {str(exc)[:ERROR_SNIPPET_CHARS]}); "
-                    f"continuing without it")
+                logger.warning(f"could not load {slug} {season} from ESPN ({type(exc).__name__}: {str(exc)[:ERROR_SNIPPET_CHARS]}); "
+                               f"continuing without it")
                 continue
             if ev.empty:
                 continue

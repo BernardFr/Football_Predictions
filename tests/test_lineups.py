@@ -124,7 +124,7 @@ def test_parse_lineups_minutes_and_stats():
 def test_end_to_end_recovers_lineup_effects(tmp_path):
     fd = build_league(tmp_path)
     client = EspnClient(tmp_path, delay=0)
-    events = pd.concat([client.sync_season(SLUG, s, log=None) for s in ("2023-24", "2024-25")], ignore_index=True)
+    events = pd.concat([client.sync_season(SLUG, s) for s in ("2023-24", "2024-25")], ignore_index=True)
     assert client.requests_made == 0 and len(events) == len(fd)
 
     tm = teammap.build(events, fd)
@@ -252,7 +252,7 @@ def test_cups_keep_only_rated_teams(tmp_path):
     ])
     (root / "20250111.json").write_text(json.dumps(day))
     client = EspnClient(tmp_path, delay=0, now=pd.Timestamp("2025-03-01"))
-    out = cups.load(client, [slug], ["2024-25"], ["Man United", "Leeds", "Brighton", "Arsenal"], log=None)
+    out = cups.load(client, [slug], ["2024-25"], ["Man United", "Leeds", "Brighton", "Arsenal"])
     assert out[["home", "away", "hg", "ag", "neutral"]].values.tolist() == [
         ["Man United", "Leeds", 2, 0, False], ["Arsenal", "Man United", 1, 1, True]]
     assert (out["div"] == "CUP").all() and client.requests_made == 0

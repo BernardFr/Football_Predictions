@@ -16,6 +16,8 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+from custom_logger import custom_logger as logger
+
 BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 DEFAULT_UA = "football-predictions/1.0 (+personal research; Python requests)"
 DEFAULT_DELAY_SECONDS = 0.4          # pause before each live request, to be polite to the feed
@@ -136,8 +138,7 @@ class EspnClient:
         ev["season"] = season
         return ev.sort_values("date").reset_index(drop=True)
 
-    def sync_season(self, slug: str, season: str, log=print, summaries: bool = True,
-                    every_day_fallback: bool = True) -> pd.DataFrame:
+    def sync_season(self, slug: str, season: str, summaries: bool = True, every_day_fallback: bool = True) -> pd.DataFrame:
         """Fetch (or read from cache) every event of the season, plus summaries of finished events."""
         today = self._now().normalize()
         events = []
@@ -149,8 +150,8 @@ class EspnClient:
             recent = day_ts >= today - pd.Timedelta(days=RECENT_REFRESH_DAYS)       # results/lineups may still be changing
             sb = self.scoreboard(slug, day, refresh=recent)
             events.extend(parse_scoreboard(sb))
-            if log and i % SCOREBOARD_LOG_EVERY == 0:
-                log(f"  {slug} {season}: scoreboard {i + 1}/{len(day_lst)} ({self.requests_made} requests so far)")
+            if i % SCOREBOARD_LOG_EVERY == 0:
+                logger.info(f"{slug} {season}: scoreboard {i + 1}/{len(day_lst)} ({self.requests_made} requests so far)")
         ev = pd.DataFrame(events).drop_duplicates("event_id") if events else pd.DataFrame()
         if ev.empty:
             return ev
@@ -163,8 +164,8 @@ class EspnClient:
         done = ev[ev.state == STATE_POST]
         for j, eid in enumerate(done.event_id):
             self.summary(slug, eid)
-            if log and j % SUMMARY_LOG_EVERY == 0 and self.requests_made:
-                log(f"  {slug} {season}: summaries {j + 1}/{len(done)} ({self.requests_made} requests so far)")
+            if j % SUMMARY_LOG_EVERY == 0 and self.requests_made:
+                logger.info(f"{slug} {season}: summaries {j + 1}/{len(done)} ({self.requests_made} requests so far)")
         return ev.reset_index(drop=True)
 
 

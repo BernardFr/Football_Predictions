@@ -6,7 +6,7 @@ import pytest
 
 from football_predictions import backtest, csvio, ledger, metrics
 from football_predictions.config import auto_season, shift_season
-from football_predictions.model import DixonColes, Hyper, Params
+from football_predictions.model import DixonColes, Hyper, Params, TrainingData, summarize, highest_prob_scorelines, HIGHEST_PROB_SCORE_COLS
 from football_predictions.sources import COLUMNS, FootballData
 
 
@@ -53,6 +53,32 @@ def test_params_vector_round_trip():
     for name in ("attack", "defence", "base_scoring", "home_adv"):
         np.testing.assert_array_equal(getattr(back, name), getattr(params, name))
     assert np.shares_memory(back.attack, theta)                    # views, not copies
+
+
+def test_training_data_layout():
+    train = pd.DataFrame({"home": ["B", "A"], "away": ["A", "C"], "div": ["D1", "CUP"],
+                          "hg": [2, 0], "ag": [1, 3], "neutral": [False, True]})
+    data = TrainingData.from_matches(train, np.array([1.0, 0.5]))
+    assert data.team_lst == ["A", "B", "C"] and data.div_lst == ["CUP", "D1"]
+    assert (data.n_teams, data.n_divs) == (3, 2)
+    # goal rows: home goals of each match, then away goals
+    np.testing.assert_array_equal(data.goals, [2, 0, 1, 3])
+    np.testing.assert_array_equal(data.scorer_idx, [1, 0, 0, 2])
+    np.testing.assert_array_equal(data.conceder_idx, [0, 2, 1, 0])
+    np.testing.assert_array_equal(data.goal_div_idx, [1, 0, 1, 0])
+    np.testing.assert_array_equal(data.is_home, [1.0, 0.0, 0.0, 0.0])   # neutral cup tie: no home advantage
+    np.testing.assert_array_equal(data.goal_weights, [1.0, 0.5, 1.0, 0.5])
+
+
+def test_highest_prob_scorelines_ranked_by_probability():
+    grid = np.array([[0.10, 0.05], [0.30, 0.55]])
+    assert highest_prob_scorelines(grid, 3) == ["1-1 55%", "1-0 30%", "0-0 10%"]
+    pred = summarize(1.7, 1.0, -0.05)
+    assert HIGHEST_PROB_SCORE_COLS == ["highest_prob_scores_1", "highest_prob_scores_2", "highest_prob_scores_3"]
+    scores = [pred[col] for col in HIGHEST_PROB_SCORE_COLS]
+    assert len(scores) == 3 and scores[0] == f"{pred['likely_score']} {pred['p_likely_score']:.0%}"
+    probs = [int(score.split()[1].rstrip("%")) for score in scores]
+    assert probs == sorted(probs, reverse=True)
 
 
 def test_prediction_is_a_proper_distribution():

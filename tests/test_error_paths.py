@@ -48,11 +48,10 @@ class _BrokenEspnClient:
         raise ConnectionError("feed down")
 
 
-def test_cup_load_warns_and_continues_when_espn_fails():
-    messages = []
-    result = cups.load(_BrokenEspnClient(), ["eng.fa"], [SEASON], ["Arsenal"], log=messages.append)
+def test_cup_load_warns_and_continues_when_espn_fails(caplog):
+    result = cups.load(_BrokenEspnClient(), ["eng.fa"], [SEASON], ["Arsenal"])
     assert result.empty and list(result.columns) == COLUMNS + cups.EXTRA_COLUMNS
-    assert any("ConnectionError: feed down" in message for message in messages)
+    assert "ConnectionError: feed down" in caplog.text
 
 
 def test_espn_schedule_failure_keeps_main_fixtures(tmp_path, monkeypatch, caplog):

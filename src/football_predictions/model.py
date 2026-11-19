@@ -42,9 +42,12 @@ TAU_FLOOR = 1e-10                 # keeps the Dixon-Coles correction strictly po
 GD_INTERVAL_QUANTILES = (0.10, 0.90)   # 80% goal-difference interval
 NO_ADJUSTMENT = 1.0               # expected-goals multiplier when `adjust` leaves a key out
 AVERAGE_RATING = 0.0              # attack/defence of a league-average team
+HIGHEST_PROB_SCORES_N = 3         # most likely scorelines reported, one column each
+HIGHEST_PROB_SCORE_COLS = [f"highest_prob_score_{rank}" for rank in range(1, HIGHEST_PROB_SCORES_N + 1)]
 
 @dataclass
 class Hyper:
+    """Hyperparameters for the model fitting process."""
     half_life_days: float = DEFAULT_HALF_LIFE_DAYS
     ridge: float = DEFAULT_RIDGE
     feeder_weight: float = DEFAULT_FEEDER_WEIGHT
@@ -61,7 +64,10 @@ class Hyper:
 
 @dataclass
 class Params:
-    """Fitted model parameters; to_vector()/from_vector() define the flat layout scipy's minimize needs."""
+    """
+    Fitted model parameters; 
+    to_vector()/from_vector() define the flat layout scipy's minimize needs.
+    """
     attack: np.ndarray        # per team: attack rating
     defence: np.ndarray    # per team: defence rating
     base_scoring: np.ndarray   # per division: base scoring level (log scale)
@@ -75,6 +81,56 @@ class Params:
         """Split theta into views (no copies), so this is cheap inside the objective."""
         attack, defence, base_scoring, home_adv = np.split(theta, [n_teams, 2 * n_teams, 2 * n_teams + n_divs])
         return cls(attack, defence, base_scoring, home_adv)
+
+
+@dataclass
+class TrainingData:
+    """
+    Matches prepared for the optimizer: team/division lookups plus per-match and per-goal arrays.
+    Each match contributes two goal rows: home goals (scored by home, conceded by away), then away goals.
+    """
+    team_lst: list[str]
+    team_pos: dict[str, int]       # team name -> index into team_lst
+    div_lst: list[str]
+    div_pos: dict[str, int]        # division name -> index into div_lst
+    home_idx: np.ndarray           # per match: home team index
+    away_idx: np.ndarray           # per match: away team index
+    div_idx: np.ndarray            # per match: division index
+    goals: np.ndarray              # per goal row: goals scored
+    scorer_idx: np.ndarray         # per goal row: scoring team index
+    conceder_idx: np.ndarray       # per goal row: conceding team index
+    goal_div_idx: np.ndarray       # per goal row: division index
+    is_home: np.ndarray            # per goal row: 1.0 if scored by the home side at a non-neutral venue
+    goal_weights: np.ndarray       # per goal row: match weight
+
+    @classmethod
+    def from_matches(cls, train: pd.DataFrame, weights: np.ndarray) -> Self:
+        team_lst = sorted(set(train.home) | set(train.away))
+        div_lst = sorted(set(train["div"]))
+        team_pos = {team: i for i, team in enumerate(team_lst)}
+        div_pos = {div_name: i for i, div_name in enumerate(div_lst)}
+        home_idx = train.home.map(team_pos).to_numpy()
+        away_idx = train.away.map(team_pos).to_numpy()
+        div_idx = train["div"].map(div_pos).to_numpy()
+        neutral = (train["neutral"].fillna(False).to_numpy(bool) if "neutral" in train else np.zeros(len(train), bool))
+        return cls(
+            team_lst=team_lst, team_pos=team_pos, div_lst=div_lst, div_pos=div_pos,
+            home_idx=home_idx, away_idx=away_idx, div_idx=div_idx,
+            goals=np.concatenate([train.hg.to_numpy(float), train.ag.to_numpy(float)]),
+            scorer_idx=np.concatenate([home_idx, away_idx]),
+            conceder_idx=np.concatenate([away_idx, home_idx]),
+            goal_div_idx=np.concatenate([div_idx, div_idx]),
+            is_home=np.concatenate([(~neutral).astype(float), np.zeros(len(train))]),   # no home advantage at neutral venues
+            goal_weights=np.concatenate([weights, weights]),
+        )
+
+    @property
+    def n_teams(self) -> int:
+        return len(self.team_lst)
+
+    @property
+    def n_divs(self) -> int:
+        return len(self.div_lst)
 
 
 def _tau(x, y, lam, mu, rho) -> np.ndarray:
@@ -111,9 +167,9 @@ def _tau(x, y, lam, mu, rho) -> np.ndarray:
     return np.maximum(tau, TAU_FLOOR)
 
 
-def score_grid(lam: float, mu: float, rho: float, max_goals: int = DEFAULT_MAX_GOALS) -> np.ndarray:
+def compute_score_grid(lam: float, mu: float, rho: float, max_goals: int = DEFAULT_MAX_GOALS) -> np.ndarray:
     """
-    Compute the full score probability grid for given expected goals and Dixon-Coles rho.
+    Compute the full score probability grid for given expected home and away goals and Dixon-Coles rho.
     Args:
         lam: expected goals for the home team
         mu: expected goals for the away team
@@ -122,11 +178,30 @@ def score_grid(lam: float, mu: float, rho: float, max_goals: int = DEFAULT_MAX_G
     Returns:
         grid of score probabilities
     """
-    goals = np.arange(max_goals + 1)
-    grid_probs = np.outer(poisson.pmf(goals, lam), poisson.pmf(goals, mu))
-    x, y = np.meshgrid(goals, goals, indexing="ij")
+    goals = np.arange(max_goals + 1) # [0, 1, 2, ..., max_goals]
+    # outer product of independent Poisson probabilities for expected home goals and expected away goals
+    # i.e. grid_probs[i, j] = P(home goals = i) * P(away goals = j) for independent Poisson outcomes
+    #  poisson.pmf(goals, lam)is the probability that the home team scores exactly 0, 1, 2, … goals in this match, given its expected goals lam (λ).
+    grid_probs = np.outer(poisson.pmf(goals, lam), poisson.pmf(goals, mu)) # initial independent Poisson probabilities
+    x, y = np.meshgrid(goals, goals, indexing="ij") # create coordinate matrices for the score grid
+    # x = [[0, 1, 2, ..., max_goals],
+    #      [0, 1, 2, ..., max_goals],
+    #      ...]
+    # y = [[0, 0, 0, ..., 0],
+    #      [1, 1, 1, ..., 1],
+    #      ...]
+
+    # full_like: create arrays of the same shape as grid_probs filled with lam and mu respectively for the tau correction
+    # apply Dixon-Coles tau correction to the independent Poisson probabilities
     grid_probs = grid_probs * _tau(x, y, np.full_like(grid_probs, lam), np.full_like(grid_probs, mu), rho)
     return grid_probs / grid_probs.sum()
+
+
+def highest_prob_scorelines(grid_probs: np.ndarray, n: int = HIGHEST_PROB_SCORES_N) -> list[str]:
+    """The n most likely scorelines with their probabilities, most likely first, e.g. ["1-1 12%", "1-0 11%", "2-0 10%"]."""
+    flat_idx = np.argsort(grid_probs, axis=None)[::-1][:n]
+    home_goals, away_goals = np.unravel_index(flat_idx, grid_probs.shape)
+    return [f"{h}-{a} {grid_probs[h, a]:.0%}" for h, a in zip(home_goals, away_goals)]
 
 
 def summarize(lam: float, mu: float, rho: float, max_goals: int = DEFAULT_MAX_GOALS) -> dict:
@@ -150,6 +225,7 @@ def summarize(lam: float, mu: float, rho: float, max_goals: int = DEFAULT_MAX_GO
         - goal difference 80% confidence interval (lower bound, upper bound)
         - most likely score combination (home goals, away goals)
         - probability of the most likely score combination
+        - the HIGHEST_PROB_SCORES_N most likely scorelines with their probabilities, one column each (text, for display)
         - 80% confidence interval for the most likely score combination (home goals, away goals)
 
     grid_probs contains the probability of each score combination (home goals (rows) x away goals (columns))
@@ -169,7 +245,7 @@ def summarize(lam: float, mu: float, rho: float, max_goals: int = DEFAULT_MAX_GO
     cdf contains the cumulative distribution function of the goal differences
 
     """
-    grid_probs = score_grid(lam, mu, rho, max_goals)
+    grid_probs = compute_score_grid(lam, mu, rho, max_goals)
     grid_size = grid_probs.shape[0]
     p_h, p_d, p_a = np.tril(grid_probs, -1).sum(), np.trace(grid_probs), np.triu(grid_probs, 1).sum() # home, draw, away probabilities
     gd = np.subtract.outer(np.arange(grid_size), np.arange(grid_size)).ravel() # goal differences for all score combinations
@@ -187,7 +263,9 @@ def summarize(lam: float, mu: float, rho: float, max_goals: int = DEFAULT_MAX_GO
         "p_home": float(p_h), "p_draw": float(p_d), "p_away": float(p_a),
         "pick": pick, "confidence": float(probs[pick]),
         "exp_gd": float(gd_vals @ gd_p), "gd_lo80": lo, "gd_hi80": hi,
-        "likely_score": f"{x}-{y}", "p_likely_score": float(grid_probs[x, y]), "rho": float(rho),
+        "likely_score": f"{x}-{y}", "p_likely_score": float(grid_probs[x, y]),
+        **dict(zip(HIGHEST_PROB_SCORE_COLS, highest_prob_scorelines(grid_probs))),
+        "rho": float(rho),
     } # return summary dictionary
 
 
@@ -227,49 +305,36 @@ class DixonColes:
         if len(train) < MIN_FIT_MATCHES or not (train["div"] == top_div).any():
             raise ValueError("not enough matches to fit")
 
-        team_lst = sorted(set(train.home) | set(train.away)) # list of all unique teams in the training data
-        div_lst = sorted(set(train["div"])) # list of all unique divisions in the training data
-        team_pos = {team: i for i, team in enumerate(team_lst)} # mapping from team name to index
-        div_pos = {div_name: i for i, div_name in enumerate(div_lst)} # mapping from division name to index
-        n_teams, n_divs = len(team_lst), len(div_lst)
-        home_idx = train.home.map(team_pos).to_numpy() # convert home team names to indices
-        away_idx = train.away.map(team_pos).to_numpy() # convert away team names to indices
-        div_idx = train["div"].map(div_pos).to_numpy() # convert division names to indices
-
-        goals = np.concatenate([train.hg.to_numpy(float), train.ag.to_numpy(float)]) # concatenate home and away goals into a single array
-        scorer_idx = np.concatenate([home_idx, away_idx]) # indices of scoring teams
-        conceder_idx = np.concatenate([away_idx, home_idx]) # indices of conceding teams
-        goal_div_idx = np.concatenate([div_idx, div_idx]) # division indices for each goal
-        neutral = (train["neutral"].fillna(False).to_numpy(bool) if "neutral" in train else np.zeros(len(train), bool))
-        is_home = np.concatenate([(~neutral).astype(float), np.zeros(len(train))]) # no home advantage at neutral venues
-        goal_weights = np.concatenate([weights, weights])   # duplicate weights for home and away goals
+        data = TrainingData.from_matches(train, weights)
+        n_teams, n_divs = data.n_teams, data.n_divs
         ridge = hyper.ridge # ridge regularization parameter for the model
 
         def objective(theta):
             """ Compute the Poisson regression loss and gradient for the given parameter vector."""
             params = Params.from_vector(theta, n_teams, n_divs)
             attack, defence, base_scoring, home_adv = params.attack, params.defence, params.base_scoring, params.home_adv
-            eta = base_scoring[goal_div_idx] + home_adv[goal_div_idx] * is_home + attack[scorer_idx] - defence[conceder_idx]
+            eta = (base_scoring[data.goal_div_idx] + home_adv[data.goal_div_idx] * data.is_home
+                   + attack[data.scorer_idx] - defence[data.conceder_idx])
             lam = np.exp(eta)
-            resid = goal_weights * (lam - goals)
-            loss = np.sum(goal_weights * (lam - goals * eta)) + 0.5 * ridge * (attack @ attack + defence @ defence)
+            resid = data.goal_weights * (lam - data.goals)
+            loss = np.sum(data.goal_weights * (lam - data.goals * eta)) + 0.5 * ridge * (attack @ attack + defence @ defence)
             grad = np.concatenate([
-                np.bincount(scorer_idx, resid, n_teams) + ridge * attack,
-                -np.bincount(conceder_idx, resid, n_teams) + ridge * defence,
-                np.bincount(goal_div_idx, resid, n_divs),
-                np.bincount(goal_div_idx, resid * is_home, n_divs),
+                np.bincount(data.scorer_idx, resid, n_teams) + ridge * attack,
+                -np.bincount(data.conceder_idx, resid, n_teams) + ridge * defence,
+                np.bincount(data.goal_div_idx, resid, n_divs),
+                np.bincount(data.goal_div_idx, resid * data.is_home, n_divs),
             ])
             return loss, grad
 
         init = Params(attack=np.zeros(n_teams), defence=np.zeros(n_teams),
-                      base_scoring=np.full(n_divs, np.log(max(goals.mean(), MIN_MEAN_GOALS))),
+                      base_scoring=np.full(n_divs, np.log(max(data.goals.mean(), MIN_MEAN_GOALS))),
                       home_adv=np.full(n_divs, INITIAL_HOME_ADV))
         if warm is not None and warm.fitted:   # start from the previous fit's ratings where they exist
-            for team, i in team_pos.items():
+            for team, i in data.team_pos.items():
                 if team in warm.team_index:
                     j = warm.team_index[team]
                     init.attack[i], init.defence[i] = warm.params.attack[j], warm.params.defence[j]
-            for div_name, i in div_pos.items():
+            for div_name, i in data.div_pos.items():
                 if div_name in warm.div_index:
                     j = warm.div_index[div_name]
                     init.base_scoring[i], init.home_adv[i] = warm.params.base_scoring[j], warm.params.home_adv[j]
@@ -277,14 +342,15 @@ class DixonColes:
         res = minimize(objective, init.to_vector(), jac=True, method=OPTIMIZER, options={"maxiter": OPTIMIZER_MAX_ITER})
         self.params = Params.from_vector(res.x, n_teams, n_divs)
         attack, defence, base_scoring, home_adv = self.params.attack, self.params.defence, self.params.base_scoring, self.params.home_adv
+        home_idx, away_idx, div_idx = data.home_idx, data.away_idx, data.div_idx
 
-        self.teams, self.team_index = team_lst, team_pos
-        self.divs, self.div_index = div_lst, div_pos
+        self.teams, self.team_index = data.team_lst, data.team_pos
+        self.divs, self.div_index = data.div_lst, data.div_pos
         self.top_div, self.asof = top_div, asof
         lg = train[train["div"] != CUP_DIV]   # a team's division comes from its league games, not cup ties
-        self.last_div = (pd.concat([lg[["date", "home", "div"]].rename(columns={"home": "team"}),
-                                    lg[["date", "away", "div"]].rename(columns={"away": "team"})])
-                         .sort_values("date").groupby("team")["div"].last().to_dict())
+        self.last_div = cast(dict[str, str], (pd.concat([lg[["date", "home", "div"]].rename(columns={"home": "team"}),
+                                                         lg[["date", "away", "div"]].rename(columns={"away": "team"})])
+                                              .sort_values("date").groupby("team")["div"].last().to_dict()))
 
         # Dixon-Coles low-score correction on top-division matches
         top = (train["div"] == top_div).to_numpy()
@@ -323,7 +389,7 @@ class DixonColes:
         return float(lam), float(mu)
 
     def score_grid(self, lam: float, mu: float) -> np.ndarray:
-        return score_grid(lam, mu, self.rho, self.hyper.max_goals)
+        return compute_score_grid(lam, mu, self.rho, self.hyper.max_goals)
 
     def predict(self, home: str, away: str, div: str | None = None, adjust: dict | None = None) -> dict:
         lam, mu = self.expected_goals(home, away, div, adjust)

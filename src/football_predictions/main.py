@@ -32,7 +32,7 @@ from . import cups, ledger, lineups, report, teammap
 from .config import DEFAULT_CONFIG_PATH, Config, read_toml_config, shift_season
 from .csvio import read_csv, write_csv
 from .espn import DEFAULT_DELAY_SECONDS, DEFAULT_UA, STATE_POST, STATE_PRE, EspnClient, has_lineups, parse_lineups
-from .model import DixonColes, Hyper
+from .model import HIGHEST_PROB_SCORE_COLS, DixonColes, Hyper
 from .report import DRAW_LABEL
 from .sources import load_matches, make_source
 
@@ -67,7 +67,7 @@ LINEUP_WINDOW_HOURS = 36               # `lineups` covers games kicking off with
 LINEUP_GRACE_HOURS = 1                 # ... or that were due to start up to this long ago
 LINEUP_LEDGER_DROP_PREFIXES = ("base_", "h_", "a_")   # diagnostic columns kept out of the ledger
 PREDICT_DISPLAY_COLS = ["date", "home", "away", "pick", "confidence", "band", "p_home", "p_draw", "p_away",
-                        "exp_gd", "gd_range_80", "likely_score"]
+                        "exp_gd", "gd_range_80", *HIGHEST_PROB_SCORE_COLS]
 PERCENT_DISPLAY_COLS = ("confidence", "p_home", "p_draw", "p_away")
 LINEUP_DISPLAY_COLS = ["home", "away", "base", "lineup", "pick_team", "confidence", "exp_gd",
                        "h_miss", "a_miss", "h_gk", "a_gk"]

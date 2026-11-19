@@ -8,6 +8,7 @@ from openpyxl.utils import get_column_letter
 
 from . import metrics
 from .lineups import FEATURE_COLS
+from .model import HIGHEST_PROB_SCORE_COLS
 
 PCT = {"p_home", "p_draw", "p_away", "confidence", "bk_home", "bk_draw", "bk_away", "accuracy",
        "hit_rate", "mean_confidence", "mean_forecast", "observed_freq", "gd_80_coverage",
@@ -28,7 +29,7 @@ FREEZE_BELOW_HEADER = "A2"
 DRAW_LABEL = "Draw"
 BOOKMAKER_COLS = ["bk_home", "bk_draw", "bk_away"]
 PREDICTION_COLS = ["date", "home", "away", "pick_label", "confidence", "band", "p_home", "p_draw", "p_away",
-                   "exp_gd", "gd_range_80", "likely_score", "xg_home", "xg_away"]
+                   "exp_gd", "gd_range_80", *HIGHEST_PROB_SCORE_COLS, "xg_home", "xg_away"]
 LINEUP_BASE_COLS = ["base_p_home", "base_p_draw", "base_p_away"]
 STATS_TOP_N = 3
 # (title, column it ranks, show the largest values first?, columns shown next to the team)
