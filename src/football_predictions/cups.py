@@ -1,4 +1,5 @@
-"""Domestic cup results (e.g. FA Cup, EFL Cup, Community Shield) from ESPN, as extra fitting data.
+"""
+Domestic cup results (e.g. FA Cup, EFL Cup, Community Shield) from ESPN, as extra fitting data.
 
 Cup games add information the league can't: a Premier League side against a Championship side is a
 direct measurement of the gap between the divisions. They are also noisier (rotated line-ups, extra
@@ -19,18 +20,21 @@ import numpy as np
 import pandas as pd
 
 from . import teammap
-from .sources import COLUMNS
+from .espn import STATE_POST
+from .sources import COLUMNS, ODDS_COLS
 
 CUP_DIV = "CUP"
+EXTRA_COLUMNS = ["neutral", "competition"]   # cup rows carry these on top of the standard COLUMNS
+ERROR_SNIPPET_CHARS = 100                    # length of an error message quoted in a warning
 
 
-def load(client, slugs: list[str], seasons: list[str], known_teams, team_map_path: Path | None = None,
+def load(client, slug_lst: list[str], season_lst: list[str], known_teams, team_map_path: Path | None = None,
          log=print) -> pd.DataFrame:
     log = log or (lambda *_: None)
     tmap = {}
     if team_map_path is not None and Path(team_map_path).exists():
-        t = pd.read_csv(team_map_path, dtype=str)
-        tmap = dict(zip(t.espn_id, t.fd_name))
+        map_df = pd.read_csv(team_map_path, dtype=str)
+        tmap = dict(zip(map_df.espn_id, map_df.fd_name))
     known = sorted(set(known_teams))
     cache: dict[tuple[str, str], str | None] = {}
 
@@ -43,30 +47,30 @@ def load(client, slugs: list[str], seasons: list[str], known_teams, team_map_pat
         return cache[key]
 
     frames = []
-    for slug in slugs:
-        for season in seasons:
+    for slug in slug_lst:
+        for season in season_lst:
             try:
                 ev = client.sync_season(slug, season, log=None, summaries=False, every_day_fallback=False)
-            except Exception as e:  # noqa: BLE001 - cups are optional extra data
-                log(f"  warning: could not load {slug} {season} from ESPN ({type(e).__name__}: {str(e)[:100]}); "
+            except Exception as exc:  # noqa: BLE001 - cups are optional extra data
+                log(f"  warning: could not load {slug} {season} from ESPN ({type(exc).__name__}: {str(exc)[:ERROR_SNIPPET_CHARS]}); "
                     f"continuing without it")
                 continue
             if ev.empty:
                 continue
-            ev = ev[(ev.state == "post") & ev.home_90.notna() & ev.away_90.notna()]
+            ev = ev[(ev.state == STATE_POST) & ev.home_90.notna() & ev.away_90.notna()]
             if ev.empty:
                 continue
-            home = [fd_name(i, n) for i, n in zip(ev.home_id, ev.home_name)]
-            away = [fd_name(i, n) for i, n in zip(ev.away_id, ev.away_name)]
+            home = [fd_name(team_id, team_name) for team_id, team_name in zip(ev.home_id, ev.home_name)]
+            away = [fd_name(team_id, team_name) for team_id, team_name in zip(ev.away_id, ev.away_name)]
             df = pd.DataFrame({
                 "date": ev.date.dt.normalize().to_numpy(), "season": season, "div": CUP_DIV,
                 "home": home, "away": away, "hg": ev.home_90.to_numpy(), "ag": ev.away_90.to_numpy(),
-                "odds_h": np.nan, "odds_d": np.nan, "odds_a": np.nan,
+                **{col: np.nan for col in ODDS_COLS},
                 "neutral": ev.neutral.to_numpy(bool), "competition": slug,
             }).dropna(subset=["home", "away"])
             frames.append(df)
     if not frames:
-        return pd.DataFrame(columns=COLUMNS + ["neutral", "competition"])
+        return pd.DataFrame(columns=COLUMNS + EXTRA_COLUMNS)
     out = pd.concat(frames, ignore_index=True)
     out["hg"], out["ag"] = out.hg.astype(int), out.ag.astype(int)
     return out.drop_duplicates(["date", "home", "away"]).sort_values("date").reset_index(drop=True)

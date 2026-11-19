@@ -1,4 +1,5 @@
-"""Map ESPN team ids to football-data team names by matching fixtures on date.
+"""
+Map ESPN team ids to football-data team names by matching fixtures on date.
 
 Two fixtures on the same date with similar home and away names are the same game; votes are
 counted over a season so one odd pairing can't create a wrong mapping. Overrides can be put in
@@ -19,32 +20,40 @@ ALIASES = [(r"\bman\b", "manchester"), (r"\butd\b", "united"), (r"nott'?m", "not
            (r"\bqpr\b", "queens park rangers"), (r"sheffield weds", "sheffield wednesday"),
            (r"west brom\b", "west bromwich albion"), (r"\bmgladbach\b", "monchengladbach"),
            (r"\bath\b", "athletic"), (r"\bsociedad\b", "real sociedad")]
+NAME_MATCH_THRESHOLD = 0.8     # match_name: minimum similarity to accept a name
+NAME_MATCH_MARGIN = 0.1        # match_name: required lead over the runner-up
+CONTAINED_SIMILARITY = 0.9     # score when one name's tokens are a subset of the other's
+FIXTURE_MATCH_THRESHOLD = 0.8  # build: minimum home + away similarity (out of 2) for a vote
+FIXTURE_MATCH_MARGIN = 0.15    # build: required lead over the runner-up fixture
+DATE_TOLERANCE_DAYS = 1        # fixtures may be dated a day apart across sources
+OVERRIDE_VOTES = -1            # marks a mapping that came from the overrides file
 DROP = r"\b(fc|afc|cf|sc|ac|ssc|as|us|sv|vfb|vfl|tsg|1\.|fsv|rcd|cd|ud|sd|rc|ogc|losc|stade|calcio|club|de|the|and|&)\b"
 
 
 def tokens(name: str) -> list[str]:
-    s = unicodedata.normalize("NFKD", str(name)).encode("ascii", "ignore").decode().lower()
-    for pat, rep in ALIASES:
-        s = re.sub(pat, rep, s)
-    s = re.sub(DROP, " ", s)
-    return re.sub(r"[^a-z0-9 ]", " ", s).split()
+    text = unicodedata.normalize("NFKD", str(name)).encode("ascii", "ignore").decode().lower()
+    for pat, replacement in ALIASES:
+        text = re.sub(pat, replacement, text)
+    text = re.sub(DROP, " ", text)
+    return re.sub(r"[^a-z0-9 ]", " ", text).split()
 
 
-def similarity(a: str, b: str) -> float:
+def similarity(name_a: str, name_b: str) -> float:
     """0..1. Handles 'Man United' vs 'Manchester United FC', 'Leeds' vs 'Leeds United'."""
-    ta, tb = tokens(a), tokens(b)
+    ta, tb = tokens(name_a), tokens(name_b)
     if not ta or not tb:
         return 0.0
     sa, sb = set(ta), set(tb)
     jac = len(sa & sb) / len(sa | sb)
     seq = SequenceMatcher(None, " ".join(ta), " ".join(tb)).ratio()
-    contained = 0.9 if (sa <= sb or sb <= sa) else 0.0       # 'leeds' within 'leeds united'
+    contained = CONTAINED_SIMILARITY if (sa <= sb or sb <= sa) else 0.0       # 'leeds' within 'leeds united'
     return max(jac, seq, contained)
 
 
-def match_name(name: str, candidates, threshold: float = 0.8, margin: float = 0.1) -> str | None:
+def match_name(name: str, candidate_lst, threshold: float = NAME_MATCH_THRESHOLD,
+               margin: float = NAME_MATCH_MARGIN) -> str | None:
     """Best football-data name for an ESPN name by similarity alone, if it is clear-cut."""
-    scored = sorted(((similarity(name, c), c) for c in set(candidates)), reverse=True)
+    scored = sorted(((similarity(name, candidate), candidate) for candidate in set(candidate_lst)), reverse=True)
     if not scored or scored[0][0] < threshold:
         return None
     if len(scored) > 1 and scored[0][0] - scored[1][0] < margin:
@@ -57,32 +66,32 @@ def build(espn_events: pd.DataFrame, fd_matches: pd.DataFrame, overrides: Path |
     votes: dict[str, Counter] = defaultdict(Counter)
     names = {}
     fd = fd_matches.assign(day=fd_matches.date.dt.normalize())
-    by_day = {d: g for d, g in fd.groupby("day")}
-    for e in espn_events.itertuples(index=False):
-        home_id, away_id = str(e.home_id), str(e.away_id)
-        home_name, away_name = str(e.home_name), str(e.away_name)
+    by_day = {match_day: group for match_day, group in fd.groupby("day")}
+    for event in espn_events.itertuples(index=False):
+        home_id, away_id = str(event.home_id), str(event.away_id)
+        home_name, away_name = str(event.home_name), str(event.away_name)
         names[home_id], names[away_id] = home_name, away_name
-        day = cast(pd.Timestamp, e.date).normalize()
-        near = [by_day[d] for d in (day - pd.Timedelta(days=1), day, day + pd.Timedelta(days=1)) if d in by_day]
+        day = cast(pd.Timestamp, event.date).normalize()
+        near = [by_day[match_day] for match_day in (day - pd.Timedelta(days=DATE_TOLERANCE_DAYS), day, day + pd.Timedelta(days=DATE_TOLERANCE_DAYS)) if match_day in by_day]
         if not near:
             continue
         cands = pd.concat(near)
-        scores = [(similarity(home_name, str(r.home)) + similarity(away_name, str(r.away)), str(r.home), str(r.away))
-                  for r in cands.itertuples(index=False)]
+        scores = [(similarity(home_name, str(fixture.home)) + similarity(away_name, str(fixture.away)), str(fixture.home), str(fixture.away))
+                  for fixture in cands.itertuples(index=False)]
         scores.sort(reverse=True)
         best = scores[0]
         second = scores[1][0] if len(scores) > 1 else 0.0
-        if best[0] >= 0.8 and best[0] - second >= 0.15:
+        if best[0] >= FIXTURE_MATCH_THRESHOLD and best[0] - second >= FIXTURE_MATCH_MARGIN:
             votes[home_id][best[1]] += 1
             votes[away_id][best[2]] += 1
-    rows = [{"espn_id": k, "espn_name": names.get(k), "fd_name": c.most_common(1)[0][0],
-             "votes": c.most_common(1)[0][1], "total": sum(c.values())} for k, c in votes.items()]
+    rows = [{"espn_id": espn_id, "espn_name": names.get(espn_id), "fd_name": counter.most_common(1)[0][0],
+             "votes": counter.most_common(1)[0][1], "total": sum(counter.values())} for espn_id, counter in votes.items()]
     tm = pd.DataFrame(rows, columns=["espn_id", "espn_name", "fd_name", "votes", "total"])
     if overrides is not None and Path(overrides).exists():
         ov = pd.read_csv(overrides)
-        for r in ov.itertuples(index=False):
-            ids = [k for k, n in names.items() if n == r.espn_name]
+        for override_row in ov.itertuples(index=False):
+            ids = [espn_id for espn_id, team_name in names.items() if team_name == override_row.espn_name]
             tm = tm[~tm.espn_id.isin(ids)]
-            tm = pd.concat([tm, pd.DataFrame([{"espn_id": i, "espn_name": r.espn_name, "fd_name": r.fd_name,
-                                               "votes": -1, "total": -1} for i in ids])], ignore_index=True)
+            tm = pd.concat([tm, pd.DataFrame([{"espn_id": espn_id, "espn_name": override_row.espn_name, "fd_name": override_row.fd_name,
+                                               "votes": OVERRIDE_VOTES, "total": OVERRIDE_VOTES} for espn_id in ids])], ignore_index=True)
     return tm.sort_values("espn_name").reset_index(drop=True)

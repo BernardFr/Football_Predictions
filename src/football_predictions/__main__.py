@@ -1,5 +1,5 @@
-"""Allows `python -m football_predictions ...`; the command-line logic lives in cli.py."""
+"""Allows `python -m football_predictions ...`; the command-line logic lives in main.py."""
 
-from .cli import main
+from .main import main
 
 raise SystemExit(main())

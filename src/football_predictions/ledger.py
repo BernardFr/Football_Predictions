@@ -1,4 +1,5 @@
-"""Live track record: every prediction made before kickoff is stored, then scored when the result arrives.
+"""
+Live track record: every prediction made before kickoff is stored, then scored when the result arrives.
 
 Key = (season, home, away, variant): a home/away pairing happens once per league season, so
 rescheduled games keep their row and the latest pre-kickoff prediction wins. `variant` is "base"
@@ -10,23 +11,28 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .csvio import read_csv, write_csv
 from .metrics import outcome
 
-KEY = ["season", "home", "away", "variant"]
+MATCH_KEY = ["season", "home", "away"]
+KEY = MATCH_KEY + ["variant"]
+BASE_VARIANT = "base"
+DATE_COLS = ["date", "predicted_at"]
+TIMESTAMP_RESOLUTION = "s"
 
 
 def load(path: Path) -> pd.DataFrame:
     if Path(path).exists():
-        led = pd.read_csv(path, parse_dates=["date", "predicted_at"])
+        led = read_csv(path, parse_dates=DATE_COLS)
         if "variant" not in led:
-            led["variant"] = "base"
+            led["variant"] = BASE_VARIANT
         return led
     return pd.DataFrame()
 
 
-def record(path: Path, preds: pd.DataFrame, variant: str = "base") -> pd.DataFrame:
+def record(path: Path, preds: pd.DataFrame, variant: str = BASE_VARIANT) -> pd.DataFrame:
     led = load(path)
-    preds = preds.assign(variant=variant, predicted_at=pd.Timestamp.now().floor("s"), hg=np.nan, ag=np.nan, result=None)
+    preds = preds.assign(variant=variant, predicted_at=pd.Timestamp.now().floor(TIMESTAMP_RESOLUTION), hg=np.nan, ag=np.nan, result=None)
     if not led.empty:
         settled = led[led.result.notna()]
         fresh = preds.merge(settled[KEY], on=KEY, how="left", indicator=True)
@@ -35,7 +41,7 @@ def record(path: Path, preds: pd.DataFrame, variant: str = "base") -> pd.DataFra
     else:
         led = preds
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    led.sort_values("date").to_csv(path, index=False)
+    write_csv(led.sort_values("date"), path)
     return led
 
 
@@ -43,13 +49,13 @@ def settle(path: Path, results: pd.DataFrame) -> int:
     led = load(path)
     if led.empty:
         return 0
-    k = ["season", "home", "away"]
-    res = results[k + ["hg", "ag"]].rename(columns={"hg": "hg_new", "ag": "ag_new"})
-    m = led.merge(res, on=k, how="left")
-    m["result"] = m["result"].astype(object)
-    new = m.result.isna() & m.hg_new.notna()
-    m.loc[new, "hg"] = m.loc[new, "hg_new"]
-    m.loc[new, "ag"] = m.loc[new, "ag_new"]
-    m.loc[new, "result"] = outcome(m.loc[new, "hg"], m.loc[new, "ag"])
-    m.drop(columns=["hg_new", "ag_new"]).to_csv(path, index=False)
+    match_key = MATCH_KEY
+    res = results[match_key + ["hg", "ag"]].rename(columns={"hg": "hg_new", "ag": "ag_new"})
+    merged = led.merge(res, on=match_key, how="left")
+    merged["result"] = merged["result"].astype(object)
+    new = merged.result.isna() & merged.hg_new.notna()
+    merged.loc[new, "hg"] = merged.loc[new, "hg_new"]
+    merged.loc[new, "ag"] = merged.loc[new, "ag_new"]
+    merged.loc[new, "result"] = outcome(merged.loc[new, "hg"], merged.loc[new, "ag"])
+    write_csv(merged.drop(columns=["hg_new", "ag_new"]), path)
     return int(new.sum())

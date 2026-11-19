@@ -183,7 +183,7 @@ def test_upcoming_schedule_from_espn(tmp_path):
     (sb / f"{last}.json").write_text(json.dumps(data))
     day = pd.Timestamp(last)
     client = EspnClient(tmp_path, delay=0, now=day - pd.Timedelta(days=2))
-    up = client.upcoming(SLUG, "2024-25", days=5)
+    up = client.upcoming(SLUG, "2024-25", n_days=5)
     assert len(up) == len(data["events"]) and (up.state == "pre").all() and client.requests_made == 0
     assert EspnClient(tmp_path, delay=0, now=day + pd.Timedelta(days=1)).upcoming(SLUG, "2024-25", 5).empty
 
@@ -236,7 +236,7 @@ def test_neutral_and_cup_weight_in_model():
     assert off.predict("T2", "T3")["p_home"] == pytest.approx(base.predict("T2", "T3")["p_home"], abs=1e-6)
     on = DixonColes(Hyper(cup_weight=1.0)).fit(both, "2026-06-01", "E0")
     assert "CUP" in on.div_index and on.last_div["T0"] == "E0"           # cups don't change a team's division
-    assert on.home_adv[on.div_index["E0"]] > 0.2                          # league home edge survives
+    assert on.params.home_adv[on.div_index["E0"]] > 0.2                          # league home edge survives
 
 
 def test_cups_keep_only_rated_teams(tmp_path):

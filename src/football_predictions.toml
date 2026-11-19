@@ -4,6 +4,9 @@
 # (the one predicted) first, then feeder divisions whose data place promoted teams on the
 # same rating scale.
 
+[meta]
+log_level = "INFO"          # DEBUG, INFO, WARNING, ERROR
+
 [general]
 source = "football_data"   # "football_data" (results + bookmaker odds) or "openfootball" (GitHub, results only)
 data_dir = "../data"       # folders are relative to this file, so ../ puts them in the project folder

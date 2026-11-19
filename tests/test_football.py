@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from football_predictions import backtest, ledger, metrics
+from football_predictions import backtest, csvio, ledger, metrics
 from football_predictions.config import auto_season, shift_season
-from football_predictions.model import DixonColes, Hyper
+from football_predictions.model import DixonColes, Hyper, Params
 from football_predictions.sources import COLUMNS, FootballData
 
 
@@ -42,7 +42,17 @@ def test_fit_recovers_strength_order_across_divisions():
     true = pd.Series(strength)
     rho = np.corrcoef(true[r.index], r.gd_vs_avg)[0, 1]
     assert rho > 0.9                                   # one scale across both divisions
-    assert m.home_adv[m.div_index["D1"]] > 0
+    assert m.params.home_adv[m.div_index["D1"]] > 0
+
+
+def test_params_vector_round_trip():
+    params = Params(attack=np.array([0.1, -0.2, 0.3]), defence=np.array([0.0, 0.4, -0.1]),
+                    base_scoring=np.array([0.2, 0.1]), home_adv=np.array([0.25, 0.3]))
+    theta = params.to_vector()
+    back = Params.from_vector(theta, n_teams=3, n_divs=2)
+    for name in ("attack", "defence", "base_scoring", "home_adv"):
+        np.testing.assert_array_equal(getattr(back, name), getattr(params, name))
+    assert np.shares_memory(back.attack, theta)                    # views, not copies
 
 
 def test_prediction_is_a_proper_distribution():
@@ -111,6 +121,19 @@ def test_ledger_record_and_settle(tmp_path):
     assert len(led) == 1 and led.p_home[0] == 0.55 and led.result[0] == "H"
 
 
+def test_csv_scores_prefixed_on_write_and_stripped_on_read(tmp_path):
+    path = tmp_path / "scores.csv"
+    df = pd.DataFrame({"likely_score": ["1-1", None], "lu_likely_score": ["2-0", "0-0"], "p_likely_score": [0.12, 0.1]})
+    csvio.write_csv(df, path)
+    raw = pd.read_csv(path)
+    assert raw.likely_score[0] == "'1-1" and raw.lu_likely_score[1] == "'0-0" and pd.isna(raw.likely_score[1])
+    back = csvio.read_csv(path)
+    assert back.likely_score[0] == "1-1" and back.lu_likely_score.tolist() == ["2-0", "0-0"]
+    assert back.p_likely_score.tolist() == [0.12, 0.1]
+    pd.DataFrame({"likely_score": ["3-1"]}).to_csv(path, index=False)   # legacy file without the prefix
+    assert csvio.read_csv(path).likely_score[0] == "3-1"
+
+
 def test_seasons():
     assert auto_season(date(2026, 11, 15)) == "2026-27"
     assert auto_season(date(2027, 3, 1)) == "2026-27"
@@ -136,3 +159,35 @@ def test_score_histogram_tables():
     assert g.loc["6+", "0"] == 1 and g.to_numpy().sum() == 6
     s = summary(m, ["2025-26", "2026-27"]).set_index("season")
     assert s.loc["All seasons", "matches"] == 6 and s.loc["2025-26", "draw %"] == 0.75
+
+
+def test_main_load_config_parses_command_line():
+    from football_predictions.main import load_config
+    cfg, args = load_config(["predict", "--league", "epl", "--today", "2025-01-15", "--source", "openfootball"])
+    assert cfg.today == date(2025, 1, 15) and cfg.now == pd.Timestamp("2025-01-15 10:00")
+    assert args.command == "predict" and args.source == "openfootball" and not args.all
+    assert cfg.league(args.league).current_season == "2024-25"
+    cfg, _ = load_config(["report"])
+    assert cfg.today == date.today() and cfg.now is None
+    with pytest.raises(SystemExit):
+        load_config(["predict", "--league", "EPL", "--all"])
+    with pytest.raises(SystemExit):
+        load_config(["not-a-command"])
+
+
+def test_team_vs_prediction_and_stats_tables():
+    from football_predictions.report import stats_frames
+    games = pd.DataFrame({"home": ["A", "B", "C"], "away": ["B", "C", "A"], "hg": [2, 0, 1], "ag": [0, 0, 3],
+                          "p_home": [0.2, 0.5, 0.6], "p_draw": [0.3, 0.3, 0.2], "p_away": [0.5, 0.2, 0.2],
+                          "exp_gd": [-1.0, 0.5, 1.0]})
+    table = metrics.team_vs_prediction(games).set_index("team")
+    # A: won both games, expected 0.2 + 0.2 wins; GD +4 vs expected -1 - 1 = -2
+    assert table.loc["A", "games"] == 2 and table.loc["A", "wins"] == 2
+    assert table.loc["A", "wins_vs_pred"] == pytest.approx(1.6)
+    assert table.loc["A", "gd_vs_pred"] == pytest.approx(6.0)
+    # C: lost once, expected losses 0.5 (vs B, away) + 0.2 (vs A, home)
+    assert table.loc["C", "losses_vs_pred"] == pytest.approx(0.3)
+    frames = stats_frames(games, "Test", top_n=2)
+    assert len(frames) == 6 and all(len(df) == 2 for _, df in frames)
+    assert frames[0][1].team.iloc[0] == "A" and frames[4][1].team.iloc[0] == "A"
+    assert frames[1][1].wins_vs_pred.is_monotonic_increasing

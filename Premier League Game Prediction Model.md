@@ -24,7 +24,7 @@ Football_Predictions/
 ├── src/
 │   ├── football_predictions.toml   ← your config, same place as before
 │   └── football_predictions/       ← the package
-│       ├── cli.py                  ← all the command-line code, with main()
+│       ├── main.py                 ← all the command-line code, with main()
 │       ├── __main__.py             ← 2 lines, for python -m football_predictions
 │       └── model.py, espn.py, lineups.py, …
 └── tests/

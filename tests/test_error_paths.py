@@ -55,7 +55,7 @@ def test_cup_load_warns_and_continues_when_espn_fails():
     assert any("ConnectionError: feed down" in message for message in messages)
 
 
-def test_espn_schedule_failure_keeps_main_fixtures(tmp_path, monkeypatch, capsys):
+def test_espn_schedule_failure_keeps_main_fixtures(tmp_path, monkeypatch, caplog):
     run = Run.__new__(Run)   # skip __init__: only the attributes _espn_fixtures reads are needed
     run.league = SimpleNamespace(espn="eng.1")
     run.cfg = SimpleNamespace(lineups={}, upcoming_days=7)
@@ -65,4 +65,4 @@ def test_espn_schedule_failure_keeps_main_fixtures(tmp_path, monkeypatch, capsys
     fixtures = pd.DataFrame({"home": ["Arsenal"], "away": ["Chelsea"]})
     result = run._espn_fixtures(fixtures, model=None)
     assert result is fixtures
-    assert "ESPN schedule unavailable (feed down)" in capsys.readouterr().out
+    assert "ESPN schedule unavailable (feed down)" in caplog.text
