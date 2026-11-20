@@ -16,7 +16,7 @@ BASE_RATE_SEASONS = 2                      # years of top-division results behin
 FALLBACK_BASE_RATES = (0.45, 0.25, 0.30)   # home/draw/away when there is no history at all
 REFIT_DAILY = "date"
 REFIT_WEEKLY = "week"
-WEEK_PERIOD = "W-SUN"                      # weekly refits group Monday..Sunday
+WEEK_PERIOD = "W-THU"                      # weekly refits group Friday..Thursday (one Fri-Mon matchday per group)
 TUNABLE_PARAMS = ("half_life_days", "ridge", "feeder_weight", "cup_weight")
 
 def base_rates(matches: pd.DataFrame, asof, top_div: str, seasons: int = BASE_RATE_SEASONS) -> tuple[float, float, float]:
@@ -32,11 +32,25 @@ def base_rates(matches: pd.DataFrame, asof, top_div: str, seasons: int = BASE_RA
 
 def walk_forward(matches: pd.DataFrame, season: str, top_div: str, hyper: Hyper,
                  refit: str = REFIT_DAILY, log=None) -> pd.DataFrame:
-    """Perform a walk-forward backtest for a given season and division."""
+    """
+    Perform a walk-forward backtest for a given season and division.
+    Weekly vs daily refits: is a speed versus accuracy trade-off. It controls how often walk_forward refits the model
+    while it replays a past season.
+
+    Daily (REFIT_DAILY, the default): the model refits before every match day, using all results up to the day before. 
+    This is what the live update command does, so the backtest command uses daily refits to measure the accuracy you would really have had.
+    Weekly (REFIT_WEEKLY): the model refits once per Friday–Thursday week (WEEK_PERIOD = "W-THU "), as of that week's first match. 
+    The other games that week are predicted with the same model, so they can't use results from earlier in the same week, such as a 
+    Saturday result for a Tuesday game.   
+    tune uses weekly refits because it runs one full backtest for each combination of settings in the grid.
+    One week usually holds two or three match days, so weekly refits take about half to a third as many fits. That makes the grid search much faster.
+
+    """
     test = matches[(matches.season == season) & (matches["div"] == top_div)].sort_values("date")
     if test.empty:
         return pd.DataFrame()
-    key = test.date if refit == REFIT_DAILY else test.date.dt.to_period(WEEK_PERIOD).dt.start_time
+    # Determine the grouping key based on the refit frequency (daily or weekly)
+    key = test.date if refit == REFIT_DAILY else test.date.dt.to_period(WEEK_PERIOD).dt.start_time # group by day or week depending on refit frequency
     row_lst, model = [], None
     for _, day_matches in test.groupby(key, sort=True):
         asof = day_matches.date.min()

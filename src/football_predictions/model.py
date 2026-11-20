@@ -11,6 +11,15 @@ its second-division matches, which sets an implicit "promotion penalty" fitted f
 Fitting is weighted Poisson maximum likelihood (weight = 0.5 ** (age / half_life)) with a ridge
 penalty pulling ratings toward average. Then the Dixon-Coles rho, which corrects the
 probabilities of 0-0, 1-0, 0-1 and 1-1, is fitted on top-division matches.
+
+L-BFGS-B (Limited-memory Broyden–Fletcher–Goldfarb–Shanno with Bounds) is a popular quasi-Newton
+optimization algorithm designed to minimize differentiable nonlinear functions subject to simple box
+constraints. It builds upon standard L-BFGS by allowing variables to have lower and upper bounds
+(l_i <= x_i <= u_i), making it ideal for large-scale optimization problems where full second-order
+derivatives (the Hessian matrix) are too expensive to compute or store.
+It is particularly well-suited for problems with a large number of variables and simple bound
+constraints, such as fitting the parameters of a football prediction model where each parameter has
+natural lower and upper limits.
 """
 
 from dataclasses import asdict, dataclass
@@ -34,7 +43,7 @@ MIN_MATCH_WEIGHT = 1e-3           # matches weighted below this are dropped from
 MIN_FIT_MATCHES = 20
 MIN_MEAN_GOALS = 0.1              # floor for the starting scoring level, so log() stays finite
 INITIAL_HOME_ADV = 0.25           # starting home advantage on the log scale
-OPTIMIZER = "L-BFGS-B"
+OPTIMIZER = "L-BFGS-B"            # optimization method for fitting the model
 OPTIMIZER_MAX_ITER = 2000
 RHO_BOUNDS = (-0.25, 0.25)
 RHO_OPTIMIZER = "bounded"
@@ -314,10 +323,12 @@ class DixonColes:
             params = Params.from_vector(theta, n_teams, n_divs)
             attack, defence, base_scoring, home_adv = params.attack, params.defence, params.base_scoring, params.home_adv
             eta = (base_scoring[data.goal_div_idx] + home_adv[data.goal_div_idx] * data.is_home
-                   + attack[data.scorer_idx] - defence[data.conceder_idx])
+                   + attack[data.scorer_idx] - defence[data.conceder_idx]) # linear predictor for the Poisson model
             lam = np.exp(eta)
-            resid = data.goal_weights * (lam - data.goals)
-            loss = np.sum(data.goal_weights * (lam - data.goals * eta)) + 0.5 * ridge * (attack @ attack + defence @ defence)
+            resid = data.goal_weights * (lam - data.goals) # weighted residuals for each match
+            # Poisson regression loss with ridge regularization
+            loss = np.sum(data.goal_weights * (lam - data.goals * eta)) + 0.5 * ridge * (attack @ attack + defence @ defence)    
+            # gradient of the loss with respect to the model parameters
             grad = np.concatenate([
                 np.bincount(data.scorer_idx, resid, n_teams) + ridge * attack,
                 -np.bincount(data.conceder_idx, resid, n_teams) + ridge * defence,
@@ -339,7 +350,7 @@ class DixonColes:
                     j = warm.div_index[div_name]
                     init.base_scoring[i], init.home_adv[i] = warm.params.base_scoring[j], warm.params.home_adv[j]
 
-        res = minimize(objective, init.to_vector(), jac=True, method=OPTIMIZER, options={"maxiter": OPTIMIZER_MAX_ITER})
+        res = minimize(objective, init.to_vector(), jac=True, method=OPTIMIZER, options={"maxiter": OPTIMIZER_MAX_ITER}) # minimize the objective function to fit the model parameters
         self.params = Params.from_vector(res.x, n_teams, n_divs)
         attack, defence, base_scoring, home_adv = self.params.attack, self.params.defence, self.params.base_scoring, self.params.home_adv
         home_idx, away_idx, div_idx = data.home_idx, data.away_idx, data.div_idx
@@ -378,6 +389,17 @@ class DixonColes:
 
     def expected_goals(self, home: str, away: str, div: str | None = None,
                        adjust: dict | None = None) -> tuple[float, float]:
+        """Expected goals for a match between the home and away teams.
+
+        Args:
+            home (str): Home team name.
+            away (str): Away team name.
+            div (str | None, optional): Division name. Defaults to None.
+            adjust (dict | None, optional): Optional multipliers for lineup adjustments. Defaults to None.
+
+        Returns:
+            tuple[float, float]: Expected goals for the home and away teams.
+        """
         j = self.div_index[div or self.top_div]
         home_attack, home_def = self._team(home)
         away_attack, away_def = self._team(away)
