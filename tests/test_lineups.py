@@ -368,3 +368,33 @@ def test_defence_records_count_goals_while_on_pitch(monkeypatch):
     assert on_off.A.iat[0] == "d1: 0.60 on vs 3.00 off (+2.40, #1)"
     assert list(keepers.columns) == ["stat", "A", "B"] and keepers.A.tolist()[:3] == ["k1", 2, 2]
     assert list(defenders.columns) == ["#", "A"] and defenders.A.iat[0].startswith("d1: 1 in 2 matches")
+
+
+def _transfer_history():
+    """p11 starts every match last season, then leaves; p12 replaces him this season."""
+    rows = []
+    for k in range(15):
+        season = "2023-24" if k < 13 else "2024-25"
+        squad = [f"p{i}" for i in range(1, 11)] + (["p11"] if k < 13 else ["p12"])
+        for athlete in squad:
+            pos = "G" if athlete == "p1" else ("F" if athlete in ("p11", "p12") else "M")
+            rows.append({"event_id": str(k), "date": pd.Timestamp("2024-01-01") + pd.Timedelta(days=7 * k),
+                         "season": season, "athlete_id": athlete, "player": athlete.upper(), "pos": pos,
+                         "starter": True, "minutes": 90, "ga": 0.0, "team": "T"})
+    return pd.DataFrame(rows)
+
+
+def test_departed_players_are_filtered_out():
+    hist = _transfer_history()
+    xi = pd.DataFrame({"athlete_id": [f"p{i}" for i in range(1, 11)] + ["p12"]}).assign(pos=lambda frame: "M")
+    assert lineups.team_features(hist, xi)["miss"] > 0.02               # p11 counted as a missing regular
+    current = lineups.current_players(hist, "2024-25", xi.athlete_id)
+    assert "p11" not in set(current.athlete_id)
+    assert lineups.team_features(current, xi)["miss"] == pytest.approx(0)
+    assert lineups.current_players(hist, "2025-26").equals(hist)      # no match yet this season: keep all
+    # a returning player in the announced XI keeps his history
+    assert "p11" in set(lineups.current_players(hist, "2024-25", ["p11"]).athlete_id)
+
+    xg_table = pd.DataFrame({"xg_for": [1.4], "xg_against": [1.2], "rho": [0.0]}, index=["T"])
+    impact = lineups.player_impact(hist, np.array([-0.3, 0.4, 0.1, 0.3]), xg_table, "2024-25")
+    assert "P11" not in set(impact.player) and "P12" in set(impact[impact.in_xi].player)

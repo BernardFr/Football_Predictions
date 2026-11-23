@@ -107,7 +107,8 @@ The first `lineups-backtest` downloads two seasons of ESPN data, about 1,000 req
 new matches.
 
 **How it works.** For each team, the announced XI is compared with how the team has lined up in its
-last 19 matches (recent ones weighted more):
+last 19 matches (recent ones weighted more). Only players who have played for the team this season
+count, so a player who left the club is not counted as missing:
 
 | Feature | Meaning |
 |---|---|

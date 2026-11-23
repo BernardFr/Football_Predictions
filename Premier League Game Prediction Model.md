@@ -384,7 +384,9 @@ The usual XI is the 11 players with the most playing time in the team's last 19 
 - **Share** = the player's weighted minutes / (sum of match weights × 11 × 90).
 - The table sorts the players by position (G, D, M, F), then by share.
 
-The window of 19 matches can include matches from last season. A player who changed clubs can therefore show in the lists of two teams.
+The window of 19 matches can include matches from last season. The calculation keeps only the players who played for the team this season (more than 0 minutes). A player who left the club therefore does not show. A player who played for two clubs this season shows in the lists of the two teams.
+
+The lineup model uses the same rule for each match in the backtest and in the predictions: it keeps the players with minutes for the team in that season before the match, plus the announced XI. Before the team's first match of a season, the model keeps all players.
 
 ## 2. Most impact and No impact
 

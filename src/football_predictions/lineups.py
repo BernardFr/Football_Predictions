@@ -14,6 +14,10 @@ The base model's expected goals are then scaled:
 The four b's are fitted (ridge-shrunk toward 0, i.e. toward "no effect") on past matches, using
 the base model's walk-forward expected goals as the offset. The evaluation is walk-forward too.
 
+The history of a team keeps only its current players: the players with minutes for the team in
+the season of the match, before the match, plus the announced XI. A player who left the club does
+not count as missing. Before the team's first match of the season, the full history is kept.
+
 Player impact: drop one player from the team's usual XI (the 11 players with the most recent
 playing time), start the best backup at the same position instead, and push the change in
 features through the fitted b's into the team's average expected goals for and against.
@@ -94,7 +98,8 @@ def team_features(hist: pd.DataFrame, xi: pd.DataFrame, n_hist: int = HISTORY_MA
     xi_g = xi_g.fillna(xi.set_index("athlete_id").pos.map(PRIOR_GA90))
     xi_att = float(xi_g.sum())
     starts = recent[recent.starter].assign(g=lambda frame: frame.athlete_id.map(ga90))
-    usual = (starts.groupby("event_id").g.sum() * pd.Series(weights)).dropna().sum() / sum(weights.values())
+    # mean per starter x 11: the usual XI output stays comparable when departed starters are filtered out
+    usual = (starts.groupby("event_id").g.mean() * STARTING_XI * pd.Series(weights)).dropna().sum() / sum(weights.values())
     att = float(np.log(max(xi_att, MIN_ATTACK_OUTPUT) / max(usual, MIN_ATTACK_OUTPUT)))
 
     gk_min = recent[recent.pos == GOALKEEPER].groupby("athlete_id").wmin.sum()
@@ -104,6 +109,17 @@ def team_features(hist: pd.DataFrame, xi: pd.DataFrame, n_hist: int = HISTORY_MA
         if gk_min.max() / gk_min.sum() >= REGULAR_GK_SHARE and regular not in set(xi[xi.pos == GOALKEEPER].athlete_id):
             gk = 1.0
     return {"miss": miss, "att": att, "gk": gk, "n_hist": len(order)}
+
+
+def current_players(hist: pd.DataFrame, season: str, keep_ids=()) -> pd.DataFrame:
+    """
+    Rows of `hist` (one team's earlier matches) for players with minutes for the team in `season`,
+    plus the players in keep_ids. If the team has not played in `season` yet, return all of `hist`.
+    """
+    played = hist[(hist.season == season) & (hist.minutes > 0)].athlete_id
+    if played.empty:
+        return hist
+    return hist[hist.athlete_id.isin(set(played) | set(keep_ids))]
 
 
 def match_features(players: pd.DataFrame, events: pd.DataFrame, team_map: pd.DataFrame,
@@ -126,8 +142,9 @@ def match_features(players: pd.DataFrame, events: pd.DataFrame, team_map: pd.Dat
         features = {}
         for side, team, tid in (("h", home, event_row.home_id), ("a", away, event_row.away_id)):
             hist = by_team.get(team, pd.DataFrame())
-            hist = hist[hist.date < event_row.date] if not hist.empty else hist
             xi = lu[(lu.team_id == tid) & lu.starter]
+            if not hist.empty:
+                hist = current_players(hist[hist.date < event_row.date], event_row.season, xi.athlete_id)
             team_feat = team_features(hist, xi) if not hist.empty else None
             if team_feat is None:
                 break
@@ -292,11 +309,12 @@ def team_player_impact(hist: pd.DataFrame, coefs: np.ndarray, xg: pd.Series) -> 
 
 def player_impact(players: pd.DataFrame, coefs: np.ndarray, xg_table: pd.DataFrame, season: str) -> pd.DataFrame:
     """
-    Player impact for every team that played in `season`, as of its latest match.
+    Player impact for every team that played in `season`, as of its latest match. Only players
+    with minutes for the team in `season` are included.
     xg_table: team_xg() output; teams missing from it are skipped.
     """
     current = set(players[players.season == season].team) & set(xg_table.index)
-    frames = [team_player_impact(group, coefs, xg_table.loc[team]).assign(team=team)
+    frames = [team_player_impact(current_players(group, season), coefs, xg_table.loc[team]).assign(team=team)
               for team, group in players[players.team.isin(current)].groupby("team")]
     if not frames:
         return pd.DataFrame(columns=IMPACT_COLS)
