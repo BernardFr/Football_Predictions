@@ -1,6 +1,7 @@
 """Excel report: upcoming predictions, backtest, calibration, player impact, live track record, team ratings."""
 
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -118,7 +119,7 @@ def stats_frames(backtest: pd.DataFrame, label: str, top_n: int = STATS_TOP_N) -
     return frames
 
 
-def _team_columns(label_name: str, labels: list, name_dict: dict[str, list[str]]) -> pd.DataFrame:
+def _team_columns(label_name: str, labels: list, name_dict: dict[Any, list]) -> pd.DataFrame:
     """One column per team (sorted), led by a label column so tables on one sheet line up."""
     table = pd.DataFrame({team: pd.Series(name_dict[team], dtype=object) for team in sorted(name_dict)})
     table = table.reindex(range(len(labels))).fillna("")
@@ -135,7 +136,8 @@ def impact_frames(impact: pd.DataFrame, top_n: int = IMPACT_TOP_N,
         xi = xi.sort_values(["order", "share"], ascending=[True, False])
         xi_dict[team] = [f"{row.player} ({row.pos})" for row in xi.itertuples()]
         top = group[group.impact_pts >= threshold].nlargest(top_n, "impact_pts")
-        top_dict[team] = [f"{row.player} ({-row.impact_pts:+.2f} pts, {-row.impact_gd:+.2f} GD)" for row in top.itertuples()]
+        top = top.assign(pts_change=-top.impact_pts, gd_change=-top.impact_gd)     # what the team loses without the player
+        top_dict[team] = [f"{row.player} ({row.pts_change:+.2f} pts, {row.gd_change:+.2f} GD)" for row in top.itertuples()]
         none_dict[team] = group[group.impact_pts.abs() < threshold].sort_values("share", ascending=False).player.tolist()
     n_xi, n_none = (max(map(len, name_dict.values()), default=0) for name_dict in (xi_dict, none_dict))
     return [("Usual XI: the 11 players with the most minutes in the last matches (recent matches count more)",
@@ -164,16 +166,12 @@ def scorer_frames(scorer_df: pd.DataFrame, season: str, top_n: int = SCORERS_TOP
              f"the score; go-ahead = puts the team ahead from level; combined = sum of the three. Own goals excluded", _team_columns("category", labels, name_dict))]
 
 
-def _rank_text(rank: int, n_ranked: int) -> str:
-    return f"rank {rank} of {n_ranked}"
-
-
 def defence_frames(records: pd.DataFrame, season: str) -> list[tuple[str | None, pd.DataFrame]]:
     """One column per team: its usual keeper's record, then its usual defenders' records, with league ranks."""
     keepers, defenders = records[records.pos == "G"], records[records.pos == "D"]
     keeper_dict = {row.team: [row.player, row.matches, row.conceded,
-                              f"{row.per90:.2f} ({_rank_text(row.per90_rank, row.n_ranked)})",
-                              f"{row.clean_sheets} ({_rank_text(row.clean_sheets_rank, row.n_ranked)})"]
+                              f"{row.per90:.2f} (rank {row.per90_rank} of {row.n_ranked})",
+                              f"{row.clean_sheets} (rank {row.clean_sheets_rank} of {row.n_ranked})"]
                    for row in keepers.itertuples()}
     defender_dict = {team: [f"{row.player}: {row.conceded} in {row.matches} matches, {row.per90:.2f} per 90 "
                             f"(#{row.per90_rank}), clean sheets {row.clean_sheets} (#{row.clean_sheets_rank})"

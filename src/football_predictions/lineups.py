@@ -29,6 +29,7 @@ difference per match. Players outside the usual XI have no impact on the model.
 """
 
 import json
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -168,7 +169,7 @@ def match_features(players: pd.DataFrame, events: pd.DataFrame, team_map: pd.Dat
             hist = by_team.get(team, pd.DataFrame())
             xi = lu[(lu.team_id == tid) & lu.starter]
             if not hist.empty:
-                hist = current_players(hist[hist.date < event_row.date], event_row.season, xi.athlete_id)
+                hist = current_players(hist[hist.date < event_row.date], str(event_row.season), xi.athlete_id)
             team_feat = team_features(hist, xi) if not hist.empty else None
             if team_feat is None:
                 break
@@ -317,18 +318,21 @@ def team_player_impact(hist: pd.DataFrame, coefs: np.ndarray, xg: pd.Series) -> 
         return usage.assign(impact_pts=np.nan, impact_gd=np.nan)
     miss_own, att_own, miss_opp, gk_opp = coefs
     base_pts = _expected_points(xg.xg_for, xg.xg_against, xg.rho)
-    impact_pts, impact_gd = pd.Series(0.0, index=usage.index), pd.Series(0.0, index=usage.index)
+    impact_pts, impact_gd = {}, {}
     bench = usage[~usage.in_xi]
     for idx, row in xi.iterrows():
         backups = bench[bench.pos == row.pos]
         backup = backups.head(1) if not backups.empty else pd.DataFrame({"athlete_id": [PLACEHOLDER_ID], "pos": [row.pos]})
         without = team_features(hist, pd.concat([xi.drop(idx), backup])[["athlete_id", "pos"]])
+        if without is None:          # same history as `base`, so this cannot happen; keeps the type checker sure
+            continue
         delta = {feature: without[feature] - base[feature] for feature in FEATURES}
         xg_for = xg.xg_for * np.exp(miss_own * delta["miss"] + att_own * delta["att"])
         xg_against = xg.xg_against * np.exp(miss_opp * delta["miss"] + gk_opp * delta["gk"])
         impact_pts[idx] = base_pts - _expected_points(xg_for, xg_against, xg.rho)
         impact_gd[idx] = (xg.xg_for - xg.xg_against) - (xg_for - xg_against)
-    return usage.assign(impact_pts=impact_pts, impact_gd=impact_gd)
+    return usage.assign(impact_pts=pd.Series(impact_pts, dtype=float).reindex(usage.index, fill_value=0.0),
+                        impact_gd=pd.Series(impact_gd, dtype=float).reindex(usage.index, fill_value=0.0))
 
 
 def player_impact(players: pd.DataFrame, coefs: np.ndarray, xg_table: pd.DataFrame, season: str) -> pd.DataFrame:
@@ -338,7 +342,7 @@ def player_impact(players: pd.DataFrame, coefs: np.ndarray, xg_table: pd.DataFra
     xg_table: team_xg() output; teams missing from it are skipped.
     """
     current = set(players[players.season == season].team) & set(xg_table.index)
-    frames = [team_player_impact(current_players(group, season), coefs, xg_table.loc[team]).assign(team=team)
+    frames = [team_player_impact(current_players(group, season), coefs, cast(pd.Series, xg_table.loc[team])).assign(team=team)
               for team, group in players[players.team.isin(current)].groupby("team")]
     if not frames:
         return pd.DataFrame(columns=IMPACT_COLS)

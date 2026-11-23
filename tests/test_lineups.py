@@ -51,7 +51,7 @@ def build_league(tmp, seed=3, seasons=("2023-24", "2024-25")):
         pos = ["G", "G"] + ["CD"] * 5 + ["M"] * 5 + ["F"] * 4
         squads[t] = [(f"{t}-{k}", f"P{t}_{k}", p) for k, p in enumerate(pos)]
     sc_w = {"G": 0.0, "CD": 0.2, "M": 0.7, "F": 1.5}
-    fd_rows, cal = [], {}
+    fd_rows = []
     root = tmp / "espn" / SLUG
     eid = 1000
     for season in seasons:
@@ -322,9 +322,9 @@ def test_valuable_scorers_classify_by_score_before_goal():
 
     table = valuable_scorers(goals, "2024-25").set_index("player")
     assert "Pa2" not in table.index                                  # own goal: no credit
-    assert table.loc["Pa1", ["goals", "first_goal", "equalizer", "go_ahead", "combined"]].tolist() == [2, 1, 0, 2, 3]
-    assert table.loc["Ph1", ["first_goal", "equalizer", "go_ahead"]].tolist() == [1, 1, 0]
-    assert table.loc["Ph2", ["first_goal", "equalizer", "go_ahead"]].tolist() == [0, 0, 1]
+    assert list(table.loc["Pa1", ["goals", "first_goal", "equalizer", "go_ahead", "combined"]]) == [2, 1, 0, 2, 3]
+    assert list(table.loc["Ph1", ["first_goal", "equalizer", "go_ahead"]]) == [1, 1, 0]
+    assert list(table.loc["Ph2", ["first_goal", "equalizer", "go_ahead"]]) == [0, 0, 1]
 
     (_, top), (_, frame) = scorer_frames(table.reset_index(), "2024-25")
     assert list(top.columns) == ["rank", "Away", "Home"] and len(top) == 5
@@ -349,33 +349,33 @@ def test_defence_records_count_goals_while_on_pitch(monkeypatch):
 
     records = defence.player_records(players, goals, "2024-25").set_index("athlete_id")
     assert "u1" not in records.index                                   # unused substitute
-    assert records.loc["k1", ["matches", "conceded", "clean_sheets"]].tolist() == [2, 2, 1]
-    assert records.loc["d1", ["conceded", "clean_sheets"]].tolist() == [1, 1]   # off at 60' in match 1
-    assert records.loc["d2", ["conceded", "clean_sheets"]].tolist() == [1, 0]   # 30 minutes: no clean sheet
-    assert records.loc["k2", ["conceded", "clean_sheets"]].tolist() == [1, 1]
+    assert list(records.loc["k1", ["matches", "conceded", "clean_sheets"]]) == [2, 2, 1]
+    assert list(records.loc["d1", ["conceded", "clean_sheets"]]) == [1, 1]   # off at 60' in match 1
+    assert list(records.loc["d2", ["conceded", "clean_sheets"]]) == [1, 0]   # 30 minutes: no clean sheet
+    assert list(records.loc["k2", ["conceded", "clean_sheets"]]) == [1, 1]
     assert records.loc["d1", "per90"] == pytest.approx(1 / 150 * 90)
     assert records.off_per90.isna().all()                              # too few minutes off the pitch
 
     monkeypatch.setattr(defence, "MIN_OFF_MINUTES", 0)
     records = defence.player_records(players, goals, "2024-25").set_index("athlete_id")
     # A conceded 2 in 180 minutes: d1 was on for 1 in 150 minutes, off for 1 in 30 minutes
-    assert records.loc["d1", ["off_minutes", "off_per90", "on_off"]].tolist() == pytest.approx([30, 3.0, 2.4])
-    assert records.loc["d2", ["off_minutes", "off_per90", "on_off"]].tolist() == pytest.approx([150, 0.6, -2.4])
+    assert list(records.loc["d1", ["off_minutes", "off_per90", "on_off"]]) == pytest.approx([30, 3.0, 2.4])
+    assert list(records.loc["d2", ["off_minutes", "off_per90", "on_off"]]) == pytest.approx([150, 0.6, -2.4])
 
     impact = pd.DataFrame({"team": ["A", "A", "A", "B"], "athlete_id": ["k1", "d1", "d2", "k2"],
                            "pos": ["G", "D", "D", "G"], "in_xi": [True, True, False, True]})
     ranked = defence.usual_xi_records(records.reset_index(), impact).set_index("athlete_id")
     assert set(ranked.index) == {"k1", "d1", "k2"}
-    assert ranked.loc["k2", ["per90_rank", "clean_sheets_rank", "n_ranked"]].tolist() == [1, 1, 2]
-    assert ranked.loc["k1", ["per90_rank", "clean_sheets_rank"]].tolist() == [2, 1]  # 2 vs 1 conceded; tied clean sheets
+    assert list(ranked.loc["k2", ["per90_rank", "clean_sheets_rank", "n_ranked"]]) == [1, 1, 2]
+    assert list(ranked.loc["k1", ["per90_rank", "clean_sheets_rank"]]) == [2, 1]  # 2 vs 1 conceded; tied clean sheets
 
-    assert ranked.loc["d1", ["on_off_rank", "n_on_off_ranked"]].tolist() == [1, 1]
+    assert list(ranked.loc["d1", ["on_off_rank", "n_on_off_ranked"]]) == [1, 1]
     assert pd.isna(ranked.loc["k1", "on_off_rank"])                   # never off the pitch
 
     (_, keepers), (_, defenders), (_, on_off) = defence_frames(ranked.reset_index(), "2024-25")
     assert on_off.A.iat[0] == "d1: 0.60 on vs 3.00 off (+2.40, #1)"
     assert list(keepers.columns) == ["stat", "A", "B"] and keepers.A.tolist()[:3] == ["k1", 2, 2]
-    assert list(defenders.columns) == ["#", "A"] and defenders.A.iat[0].startswith("d1: 1 in 2 matches")
+    assert list(defenders.columns) == ["#", "A"] and str(defenders.A.iat[0]).startswith("d1: 1 in 2 matches")
 
 
 def _transfer_history():
@@ -394,11 +394,13 @@ def _transfer_history():
 
 def test_departed_players_are_filtered_out():
     hist = _transfer_history()
-    xi = pd.DataFrame({"athlete_id": [f"p{i}" for i in range(1, 11)] + ["p12"]}).assign(pos=lambda frame: "M")
-    assert lineups.team_features(hist, xi)["miss"] > 0.02               # p11 counted as a missing regular
+    xi = pd.DataFrame({"athlete_id": [f"p{i}" for i in range(1, 11)] + ["p12"]}).assign(pos="M")
+    features = lineups.team_features(hist, xi)
+    assert features is not None and features["miss"] > 0.02            # p11 counted as a missing regular
     current = lineups.current_players(hist, "2024-25", xi.athlete_id)
     assert "p11" not in set(current.athlete_id)
-    assert lineups.team_features(current, xi)["miss"] == pytest.approx(0)
+    features = lineups.team_features(current, xi)
+    assert features is not None and features["miss"] == pytest.approx(0)
     assert lineups.current_players(hist, "2025-26").equals(hist)      # no match yet this season: keep all
     # a returning player in the announced XI keeps his history
     assert "p11" in set(lineups.current_players(hist, "2024-25", ["p11"]).athlete_id)

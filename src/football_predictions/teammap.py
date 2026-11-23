@@ -92,6 +92,7 @@ def build(espn_events: pd.DataFrame, fd_matches: pd.DataFrame, overrides: Path |
         for override_row in ov.itertuples(index=False):
             ids = [espn_id for espn_id, team_name in names.items() if team_name == override_row.espn_name]
             tm = tm[~tm.espn_id.isin(ids)]
-            tm = pd.concat([tm, pd.DataFrame([{"espn_id": espn_id, "espn_name": override_row.espn_name, "fd_name": override_row.fd_name,
-                                               "votes": OVERRIDE_VOTES, "total": OVERRIDE_VOTES} for espn_id in ids])], ignore_index=True)
+            override_df = pd.DataFrame({"espn_id": ids, "espn_name": override_row.espn_name, "fd_name": override_row.fd_name,
+                                        "votes": OVERRIDE_VOTES, "total": OVERRIDE_VOTES})
+            tm = pd.concat([tm, override_df], ignore_index=True)
     return tm.sort_values("espn_name").reset_index(drop=True)

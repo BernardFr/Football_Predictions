@@ -29,7 +29,7 @@ def test_setup_logger_uses_config_level_and_writes_log_file(fresh_logger):
     logger = custom_logger.setup_logger(prog_name)
     custom_logger.setup_logger(prog_name)                      # idempotent: no duplicate handlers
     assert len(logger.handlers) == 2
-    assert logger.level == custom_logger.logging.getLevelName(custom_logger._default_log_level(DEFAULT_CONFIG_PATH))
+    assert logger.level == custom_logger.logging.getLevelNamesMapping()[custom_logger._default_log_level(DEFAULT_CONFIG_PATH)]
     logger.warning(TEST_MESSAGE)
     for handler in logger.handlers:
         handler.flush()
