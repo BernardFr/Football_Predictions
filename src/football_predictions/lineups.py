@@ -7,12 +7,15 @@ only matches played before kickoff:
   miss  share of the team's usual playing time missing from the XI (0 = full strength)
   att   log(attacking output of the XI / output of its usual XIs); goals + assists per 90,
         shrunk toward a position prior so one lucky goal doesn't make a player a star
-  gk    1 if the regular goalkeeper (>= 60% of GK minutes) is not starting
+  gk    log(goals-allowed rate of the XI keeper / goals-allowed rate of the usual keepers).
+        Goals-allowed rate = 1 - save %, with save % shrunk toward the league average, so a few
+        matches don't make a keeper great. 0 = the usual keeper; > 0 = a weaker keeper starts.
 
 The base model's expected goals are then scaled:
   goals_for ~ Poisson(xg_base * exp(b1*miss_own + b2*att_own + b3*miss_opp + b4*gk_opp))
 The four b's are fitted (ridge-shrunk toward 0, i.e. toward "no effect") on past matches, using
-the base model's walk-forward expected goals as the offset. The evaluation is walk-forward too.
+the base model's walk-forward expected goals as the offset. Each b is held to its sensible sign
+(COEF_BOUNDS): a missing regular cannot help the team, and a weaker keeper cannot concede fewer goals. The evaluation is walk-forward too.
 
 The history of a team keeps only its current players: the players with minutes for the team in
 the season of the match, before the match, plus the announced XI. A player who left the club does
@@ -48,7 +51,10 @@ HISTORY_DECAY = 0.85            # weight of the k-th most recent match = HISTORY
 SHRINK_90S = 4.0                # prior strength, in 90-minute appearances
 MIN_HISTORY_MATCHES = 4
 MIN_ATTACK_OUTPUT = 0.05        # floor on goals + assists per 90, so the log ratio stays finite
-REGULAR_GK_SHARE = 0.6          # a keeper with this share of GK minutes is the regular
+PRIOR_SAVE_PCT = 0.67           # league save % (EPL 2025-27: 0.672)
+SHRINK_SHOTS = 40.0             # save % prior strength, in shots on target (about 10 matches)
+MIN_ALLOWED_RATE = 0.05         # floor on 1 - save %, so the log ratio stays finite
+COEF_BOUNDS = [(None, 0.0), (0.0, None), (0.0, None), (0.0, None)]   # COEFS order: miss_own <= 0, others >= 0
 DEFAULT_RIDGE = 5.0
 DEFAULT_MIN_TRAIN = 150         # matches needed before the coefficients are fitted
 PLACEHOLDER_ID = "__backup__"   # an unknown backup: no playing time, position-prior output
@@ -102,13 +108,31 @@ def team_features(hist: pd.DataFrame, xi: pd.DataFrame, n_hist: int = HISTORY_MA
     usual = (starts.groupby("event_id").g.mean() * STARTING_XI * pd.Series(weights)).dropna().sum() / sum(weights.values())
     att = float(np.log(max(xi_att, MIN_ATTACK_OUTPUT) / max(usual, MIN_ATTACK_OUTPUT)))
 
-    gk_min = recent[recent.pos == GOALKEEPER].groupby("athlete_id").wmin.sum()
-    gk = 0.0
-    if gk_min.sum() > 0:
-        regular = gk_min.idxmax()
-        if gk_min.max() / gk_min.sum() >= REGULAR_GK_SHARE and regular not in set(xi[xi.pos == GOALKEEPER].athlete_id):
-            gk = 1.0
+    gk = keeper_feature(recent, xi)
     return {"miss": miss, "att": att, "gk": gk, "n_hist": len(order)}
+
+
+def allowed_rate(keepers: pd.DataFrame, shrink_shots: float = SHRINK_SHOTS) -> pd.Series:
+    """Per keeper (index athlete_id): 1 - save %, with save % shrunk toward PRIOR_SAVE_PCT."""
+    save_pct = (keepers.saves + shrink_shots * PRIOR_SAVE_PCT) / (keepers.saves + keepers.goals_conceded + shrink_shots)
+    return (1 - save_pct).clip(lower=MIN_ALLOWED_RATE)
+
+
+def keeper_feature(recent: pd.DataFrame, xi: pd.DataFrame) -> float:
+    """
+    log(goals-allowed rate of the XI keeper / minutes-weighted rate of the recent keepers).
+    recent: the team's weighted recent rows (column wmin); xi: the announced starters.
+    """
+    keepers = recent[recent.pos == GOALKEEPER].groupby("athlete_id").agg(
+        wmin=("wmin", "sum"), saves=("saves", "sum"), goals_conceded=("goals_conceded", "sum"))
+    keepers = keepers[keepers.wmin > 0]
+    xi_keepers = xi[xi.pos == GOALKEEPER].athlete_id
+    if keepers.empty or xi_keepers.empty:
+        return 0.0
+    rate = allowed_rate(keepers)
+    usual = float((rate * keepers.wmin).sum() / keepers.wmin.sum())
+    xi_rate = float(rate.reindex(xi_keepers).fillna(1 - PRIOR_SAVE_PCT).mean())
+    return float(np.log(xi_rate / usual))
 
 
 def current_players(hist: pd.DataFrame, season: str, keep_ids=()) -> pd.DataFrame:
@@ -173,7 +197,7 @@ def fit_coefs(train: pd.DataFrame, ridge: float = DEFAULT_RIDGE) -> np.ndarray:
         mu = np.exp(eta)
         return np.sum(mu - goals * eta) + 0.5 * ridge * coefs @ coefs, X.T @ (mu - goals) + ridge * coefs
 
-    return minimize(objective, np.zeros(X.shape[1]), jac=True, method="L-BFGS-B").x
+    return minimize(objective, np.zeros(X.shape[1]), jac=True, method="L-BFGS-B", bounds=COEF_BOUNDS).x
 
 
 def multipliers(row, coefs: np.ndarray) -> tuple[float, float]:

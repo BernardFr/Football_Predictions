@@ -277,8 +277,9 @@ def _stat(player: dict, *names) -> float:
 
 def parse_lineups(summary: dict, event_id: str) -> pd.DataFrame:
     """
-    One row per player in the match-day squad: starter flag, minutes, goals + assists, and the
-    match minutes the player came on and went off (both 0 for an unused substitute).
+    One row per player in the match-day squad: starter flag, minutes, goals + assists, the match
+    minutes the player came on and went off (both 0 for an unused substitute), and saves and goals
+    conceded (keepers only; 0 for other players).
     """
     rows = []
     for team_roster in summary.get("rosters", []):
@@ -303,6 +304,7 @@ def parse_lineups(summary: dict, event_id: str) -> pd.DataFrame:
                 "starter": starter, "minutes": max(min(end, MATCH_MINUTES) - min(start, MATCH_MINUTES), 0),
                 "ga": _stat(player, "totalGoals") + _stat(player, "goalAssists"),
                 "on_minute": start, "off_minute": off_minute,
+                "saves": _stat(player, "saves"), "goals_conceded": _stat(player, "goalsConceded"),
             })
     return pd.DataFrame(rows)
 

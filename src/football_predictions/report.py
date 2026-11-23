@@ -234,7 +234,7 @@ def write(path: Path, league_name: str, upcoming, backtest, season, ledger, rati
                     lu[col_name] = lineup_upcoming[col_name].to_numpy()
             _sheet(xw, "Lineup predictions", [(
                 "Adjusted for announced XIs. miss = share of usual playing time missing; att = log attacking "
-                "output vs usual; gk = regular keeper not starting (h = home, a = away)", lu)])
+                "output vs usual; gk = keeper quality vs usual, > 0 = weaker keeper (h = home, a = away)", lu)])
         if lineup_comparison is not None and not lineup_comparison.empty:
             frames: list[tuple[str | None, pd.DataFrame]] = [("Walk-forward test: base model vs. lineup-adjusted, same matches (lower RPS is better)",
                        lineup_comparison)]

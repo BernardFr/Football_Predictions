@@ -30,17 +30,20 @@ def test_position_groups():
            ["G", "D", "D", "M", "M", "F", "F", "F", "M"]
 
 
-def roster_entry(pid, name, pos, starter, goals=0, assists=0, sub_in=None, sub_out=None):
+def roster_entry(pid, name, pos, starter, goals=0, assists=0, sub_in=None, sub_out=None, saves=0, conceded=0):
     e = {"athlete": {"id": pid, "displayName": name}, "position": {"abbreviation": pos}, "starter": starter,
          "subbedIn": {"didSub": sub_in is not None, "clock": {"displayValue": f"{sub_in}'"}} if sub_in else {"didSub": False},
          "subbedOut": {"didSub": sub_out is not None, "clock": {"displayValue": f"{sub_out}'"}} if sub_out else {"didSub": False},
-         "stats": [{"name": "totalGoals", "value": goals}, {"name": "goalAssists", "value": assists}]}
+         "stats": [{"name": "totalGoals", "value": goals}, {"name": "goalAssists", "value": assists},
+                   {"name": "saves", "value": saves}, {"name": "goalsConceded", "value": conceded}]}
     return e
 
 
 def build_league(tmp, seed=3, seasons=("2023-24", "2024-25")):
     """Write ESPN-shaped scoreboards/summaries into the cache; return fd matches and true strengths."""
     rng = np.random.default_rng(seed)
+    save_rng = np.random.default_rng(seed + 1)      # separate stream: keeper stats don't shift the other draws
+    save_pct = {"0": 0.80, "1": 0.55}                 # squad index 0 = regular keeper, 1 = weaker backup
     n = len(ESPN_NAMES)
     strength = np.linspace(0.45, -0.45, n)
     squads = {}
@@ -82,7 +85,11 @@ def build_league(tmp, seed=3, seasons=("2023-24", "2024-25")):
                 w = np.array([4.0 if p[0].endswith("-12") else sc_w[p[2]] for p in xi])
                 scorer = rng.choice(len(xi), size=goals[side], p=w / w.sum())
                 g = np.bincount(scorer, minlength=len(xi))
-                roster = [roster_entry(p[0], p[1], p[2], True, int(g[i]), sub_out=70 if i == 10 else None)
+                conceded = int(goals["away" if side == "home" else "home"])
+                keeper_save = save_pct[xi[0][0].split("-")[1]]
+                saves = int(save_rng.poisson(max(conceded, 1) * keeper_save / (1 - keeper_save)))
+                roster = [roster_entry(p[0], p[1], p[2], True, int(g[i]), sub_out=70 if i == 10 else None,
+                                       saves=saves if i == 0 else 0, conceded=conceded if i == 0 else 0)
                           for i, p in enumerate(xi)]
                 bench = [p for p in squads[t] if p not in xi]
                 roster.append(roster_entry(bench[0][0], bench[0][1], bench[0][2], False, sub_in=70))
@@ -134,7 +141,8 @@ def test_end_to_end_recovers_lineup_effects(tmp_path):
     players = lineups.player_table(client, SLUG, events, tm)
     feat = lineups.match_features(players, events, tm)
     assert len(feat) > 0.8 * len(fd)
-    assert feat.h_gk.isin([0.0, 1.0]).all() and feat.h_miss.between(0, 1).all()
+    assert feat.h_miss.between(0, 1).all()
+    assert feat.h_gk.between(-1, 2).all() and (feat.h_gk > 0.1).any() and (feat.h_gk < 0).any()   # backup vs regular
 
     # base model = true strengths without lineup effects (what a team-strength model knows)
     base = fd.assign(xg_home=fd.true_xh, xg_away=fd.true_xa, rho=0.0, result=outcome(fd.hg, fd.ag))
@@ -380,7 +388,7 @@ def _transfer_history():
             pos = "G" if athlete == "p1" else ("F" if athlete in ("p11", "p12") else "M")
             rows.append({"event_id": str(k), "date": pd.Timestamp("2024-01-01") + pd.Timedelta(days=7 * k),
                          "season": season, "athlete_id": athlete, "player": athlete.upper(), "pos": pos,
-                         "starter": True, "minutes": 90, "ga": 0.0, "team": "T"})
+                         "starter": True, "minutes": 90, "ga": 0.0, "team": "T", "saves": 0.0, "goals_conceded": 0.0})
     return pd.DataFrame(rows)
 
 
@@ -398,3 +406,32 @@ def test_departed_players_are_filtered_out():
     xg_table = pd.DataFrame({"xg_for": [1.4], "xg_against": [1.2], "rho": [0.0]}, index=["T"])
     impact = lineups.player_impact(hist, np.array([-0.3, 0.4, 0.1, 0.3]), xg_table, "2024-25")
     assert "P11" not in set(impact.player) and "P12" in set(impact[impact.in_xi].player)
+
+
+def test_keeper_feature_uses_shrunk_save_percentage():
+    # regular "k1": 80 saves, 20 conceded (80%); backup "k2": 5 saves, 5 conceded (50%)
+    recent = pd.DataFrame({"athlete_id": ["k1", "k2", "d1"], "pos": ["G", "G", "D"], "wmin": [900.0, 90.0, 900.0],
+                           "saves": [80.0, 5.0, 0.0], "goals_conceded": [20.0, 5.0, 0.0]})
+    rate = lineups.allowed_rate(recent[recent.pos == "G"].set_index("athlete_id"))
+    assert rate["k1"] == pytest.approx(1 - (80 + 40 * 0.67) / 140)                 # shrunk toward the league
+    assert rate["k1"] < 1 - lineups.PRIOR_SAVE_PCT < rate["k2"]
+
+    def gk(keeper):
+        return lineups.keeper_feature(recent, pd.DataFrame({"athlete_id": [keeper, "d1"], "pos": ["G", "D"]}))
+    assert gk("k1") < 0 < gk("new") < gk("k2")       # unknown keeper = league average, between the two
+    assert lineups.keeper_feature(recent, pd.DataFrame({"athlete_id": ["d1"], "pos": ["D"]})) == 0.0
+
+
+def test_fitted_effects_keep_their_sign():
+    rng = np.random.default_rng(11)
+    n = 400
+    train = pd.DataFrame({"h_miss": rng.uniform(0, 0.3, n), "h_att": rng.normal(0, 0.2, n),
+                          "h_gk": rng.choice([0.0, 0.5], n), "a_miss": rng.uniform(0, 0.3, n),
+                          "a_att": rng.normal(0, 0.2, n), "a_gk": rng.choice([0.0, 0.5], n),
+                          "xg_home": 1.5, "xg_away": 1.2})
+    # goals fall when the opponent's keeper is weaker: the opposite of the sensible sign
+    train["hg"] = rng.poisson(1.5 * np.exp(-0.8 * train.a_gk))
+    train["ag"] = rng.poisson(1.2 * np.exp(-0.8 * train.h_gk))
+    coefs = dict(zip(lineups.COEFS, lineups.fit_coefs(train, ridge=0.1)))
+    assert coefs["gk_opp"] == pytest.approx(0, abs=1e-9)
+    assert coefs["miss_own"] <= 0 and coefs["att_own"] >= 0 and coefs["miss_opp"] >= 0

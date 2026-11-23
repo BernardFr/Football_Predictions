@@ -396,7 +396,7 @@ These scores use the lineup model. The lineup model compares an XI with the team
 |---|---|
 | `miss` | The share of the usual playing time that is missing from the XI |
 | `att` | log(attacking output of the XI / attacking output of the usual XIs). Output is goals + assists per 90, shrunk toward a position average: G 0, D 0.08, M 0.22, F 0.45. The shrinkage is equal to 4 extra matches at the position average. |
-| `gk` | 1 if the regular keeper (60% or more of the keeper minutes) does not start |
+| `gk` | log(goals-allowed rate of the XI keeper / goals-allowed rate of the usual keepers). The goals-allowed rate is 1 − save %. Save % uses the keeper's saves and goals conceded, shrunk toward the league average (67%) with the weight of 40 shots on target. An unknown keeper gets the league average. 0 = the usual keeper. A value above 0 means that a weaker keeper starts. |
 
 The model scales the team's expected goals with four fitted coefficients:
 
@@ -422,7 +422,11 @@ For example, "Kai Havertz (−0.03 pts, −0.05 GD)" means that Arsenal lose 0.0
 
 **Most impact** shows the 3 players who cost the team the most points. **No impact** shows the players with a change of less than 0.005 points per match. A player outside the usual XI always has no impact, because the model uses only the starting XI.
 
-The values are small when the fitted coefficients are small. Some players have a negative impact: the model expects the team to do better with the backup. When `gk_opp` (b4) is negative, all regular keepers have a negative impact. A negative `gk_opp` means "a backup keeper concedes fewer goals", which is probably noise in a small sample.
+The fit holds each coefficient to its sensible sign: b1 ≤ 0, and b2, b3 and b4 ≥ 0. A missing regular therefore cannot help the team, and a weaker keeper cannot concede fewer goals.
+
+The values are small when the fitted coefficients are small. Some players have a negative impact: the model expects the team to do better with the backup. For example, the backup can have a better scoring record than the regular.
+
+The impact of a keeper depends on the keeper and on the backup. A good keeper with a good backup has less impact than a good keeper with a weak backup.
 
 The two numbers usually have the same sign. They can be different when the absence of a player gives fewer goals at the two ends: a draw then becomes more likely, and that helps a weaker team.
 

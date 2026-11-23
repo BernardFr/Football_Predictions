@@ -114,10 +114,12 @@ count, so a player who left the club is not counted as missing:
 |---|---|
 | `miss` | Share of the team's usual playing time missing from the XI (0 = full strength) |
 | `att` | Attacking output of the XI vs. its usual XIs (goals + assists per 90, shrunk toward position averages) |
-| `gk` | 1 if the regular goalkeeper isn't starting |
+| `gk` | Keeper quality of the XI vs. the usual keepers: log of the goals-allowed rate (1 − save %, shrunk toward the league average of 67%). 0 = the usual keeper; above 0 = a weaker keeper |
 
 These scale the base model's expected goals for both sides. The size of each effect is estimated
-from past matches, shrunk toward "no effect", then refitted before every match date. The
+from past matches, shrunk toward "no effect", then refitted before every match date. Each effect is
+held to its sensible sign: a missing regular can't help the team, and a weaker keeper can't concede
+fewer goals. The
 **Lineup backtest** sheet compares base vs. adjusted on the same matches (RPS, log loss, accuracy,
 and goal log-likelihood, which reacts sooner than W/D/L scores). Lineup predictions are logged to
 the ledger as variant `lineup`, so **Live track record** scores them separately from the base model.
