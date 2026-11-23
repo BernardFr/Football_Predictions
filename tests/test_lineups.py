@@ -114,6 +114,7 @@ def test_parse_lineups_minutes_and_stats():
     lu = parse_lineups(s, "9").set_index("athlete_id")
     assert lu.loc["a", "minutes"] == 70 and lu.loc["b", "minutes"] == 20 and lu.loc["c", "minutes"] == 0
     assert lu.loc["a", "ga"] == 3 and lu.loc["a", "pos"] == "F"
+    assert lu[["on_minute", "off_minute"]].values.tolist() == [[0, 70], [70, float("inf")], [0, 0]]
     pre = {"rosters": [{"team": {"id": str(t)}, "roster": [{"athlete": {"id": f"{t}{i}"}, "starter": True,
                                                             "position": {"abbreviation": "M"}} for i in range(11)]}
                        for t in (1, 2)]}
@@ -256,3 +257,114 @@ def test_cups_keep_only_rated_teams(tmp_path):
     assert out[["home", "away", "hg", "ag", "neutral"]].values.tolist() == [
         ["Man United", "Leeds", 2, 0, False], ["Arsenal", "Man United", 1, 1, True]]
     assert (out["div"] == "CUP").all() and client.requests_made == 0
+
+
+def test_player_impact_ranks_star_and_keeper(tmp_path):
+    from football_predictions.report import impact_frames
+    fd = build_league(tmp_path)
+    client = EspnClient(tmp_path, delay=0)
+    events = pd.concat([client.sync_season(SLUG, s) for s in ("2023-24", "2024-25")], ignore_index=True)
+    players = lineups.player_table(client, SLUG, events, teammap.build(events, fd))
+    coefs = np.array([-0.3, 0.4, 0.1, 0.3])     # COEFS order: miss_own, att_own, miss_opp, gk_opp
+    xg_table = lineups.team_xg(fd.assign(xg_home=fd.true_xh, xg_away=fd.true_xa, rho=0.0), "2024-25")
+    assert set(xg_table.columns) == {"xg_for", "xg_against", "rho"} and len(xg_table) == len(FD_NAMES)
+
+    impact = lineups.player_impact(players, coefs, xg_table, "2024-25")
+    assert set(impact.team) == set(FD_NAMES)
+    star_in_top3 = 0
+    for t, team in enumerate(FD_NAMES):
+        group = impact[impact.team == team]
+        assert group.in_xi.sum() == lineups.STARTING_XI
+        ranked = group.sort_values("impact_pts", ascending=False).player.tolist()
+        assert ranked[0] == f"P{t}_0"                               # regular keeper: gk_opp is the largest effect
+        star_in_top3 += f"P{t}_12" in ranked[:3]
+        assert (group[~group.in_xi][["impact_pts", "impact_gd"]] == 0).all().all()
+        xi = group[group.in_xi]
+        assert (xi.impact_pts != 0).all()                            # negative: the backup rates higher
+    assert star_in_top3 >= 2 * len(FD_NAMES) // 3                     # star striker, up to goal-scoring luck
+
+    usual, top, none = (frame for _, frame in impact_frames(impact))
+    for frame, label in ((usual, "#"), (top, "rank"), (none, "#")):
+        assert list(frame.columns) == [label, *sorted(FD_NAMES)]     # team columns line up across tables
+    assert len(usual) == lineups.STARTING_XI and usual[FD_NAMES[0]].iat[0] == "P0_0 (G)"
+    assert len(top) == 3
+    assert "P0_13" in none[FD_NAMES[0]].tolist()                     # backup striker: outside the usual XI
+
+
+def _goal_play(team_id, athlete_id, minute, own_goal=False):
+    return {"scoringPlay": True, "team": {"id": team_id}, "clock": {"displayValue": f"{minute}'"},
+            "participants": [{"athlete": {"id": athlete_id, "displayName": f"P{athlete_id}"}}],
+            "ownGoal": own_goal, "penaltyKick": False}
+
+
+def test_valuable_scorers_classify_by_score_before_goal():
+    from football_predictions.espn import parse_goals
+    from football_predictions.report import scorer_frames
+    from football_predictions.scorers import classify, valuable_scorers
+    # home 1, away 2: 0-1 (a), 1-1 (h equalizer), 1-2 (a go-ahead), 2-2 (h equalizer, own goal by a's player),
+    # 3-2 (h go-ahead); a card in between is ignored
+    plays = [_goal_play("2", "a1", 10), _goal_play("1", "h1", 20), {"scoringPlay": False, "team": {"id": "1"}},
+             _goal_play("2", "a1", 30), _goal_play("1", "a2", 40, own_goal=True), _goal_play("1", "h2", 90)]
+    goals = parse_goals({"header": {"competitions": [{"details": plays}]}}, "7")
+    assert len(goals) == 5 and goals.minute.tolist() == [10, 20, 30, 40, 90]
+    assert parse_goals({}, "8").empty
+    goals = goals.assign(season="2024-25", team=goals.team_id.map({"1": "Home", "2": "Away"}))
+    flags = classify(goals)[["first_goal", "equalizer", "go_ahead"]].astype(int).values.tolist()
+    assert flags == [[1, 0, 1], [1, 1, 0], [0, 0, 1], [0, 1, 0], [0, 0, 1]]
+
+    table = valuable_scorers(goals, "2024-25").set_index("player")
+    assert "Pa2" not in table.index                                  # own goal: no credit
+    assert table.loc["Pa1", ["goals", "first_goal", "equalizer", "go_ahead", "combined"]].tolist() == [2, 1, 0, 2, 3]
+    assert table.loc["Ph1", ["first_goal", "equalizer", "go_ahead"]].tolist() == [1, 1, 0]
+    assert table.loc["Ph2", ["first_goal", "equalizer", "go_ahead"]].tolist() == [0, 0, 1]
+
+    (_, top), (_, frame) = scorer_frames(table.reset_index(), "2024-25")
+    assert list(top.columns) == ["rank", "Away", "Home"] and len(top) == 5
+    assert top.Away.tolist()[:2] == ["Pa1 (2)", ""]                    # own goal by Pa2 is not listed
+    assert list(frame.columns) == ["category", "Away", "Home"] and len(frame) == 12
+    assert frame.set_index("category").loc["Go-ahead 1", "Away"] == "Pa1 (2)"
+    assert frame.set_index("category").loc[["Combined 1", "Combined 2"], "Home"].tolist() == ["Ph1 (2)", "Ph2 (1)"]
+
+
+def test_defence_records_count_goals_while_on_pitch(monkeypatch):
+    from football_predictions import defence
+    from football_predictions.report import defence_frames
+    inf = float("inf")
+    # match 1: A keeper k1 plays 90'; defender d1 off at 60', d2 on at 60'. B scores at 30' and 75'.
+    # match 2: A keeper k1 plays 90', d1 plays 90'. B does not score; A's own goal by B's player counts for A.
+    rows = [("1", "A", "k1", "G", 0, inf, 90), ("1", "A", "d1", "D", 0, 60, 60), ("1", "A", "d2", "D", 60, inf, 30),
+            ("1", "B", "k2", "G", 0, inf, 90), ("2", "A", "k1", "G", 0, inf, 90), ("2", "A", "d1", "D", 0, inf, 90),
+            ("2", "B", "k2", "G", 0, inf, 90), ("2", "A", "u1", "D", 0, 0, 0)]
+    players = pd.DataFrame(rows, columns=["event_id", "team", "athlete_id", "pos", "on_minute", "off_minute", "minutes"])
+    players = players.assign(player=players.athlete_id, season="2024-25")
+    goals = pd.DataFrame({"event_id": ["1", "1", "2"], "team": ["B", "B", "A"], "minute": [30, 75, 50]})
+
+    records = defence.player_records(players, goals, "2024-25").set_index("athlete_id")
+    assert "u1" not in records.index                                   # unused substitute
+    assert records.loc["k1", ["matches", "conceded", "clean_sheets"]].tolist() == [2, 2, 1]
+    assert records.loc["d1", ["conceded", "clean_sheets"]].tolist() == [1, 1]   # off at 60' in match 1
+    assert records.loc["d2", ["conceded", "clean_sheets"]].tolist() == [1, 0]   # 30 minutes: no clean sheet
+    assert records.loc["k2", ["conceded", "clean_sheets"]].tolist() == [1, 1]
+    assert records.loc["d1", "per90"] == pytest.approx(1 / 150 * 90)
+    assert records.off_per90.isna().all()                              # too few minutes off the pitch
+
+    monkeypatch.setattr(defence, "MIN_OFF_MINUTES", 0)
+    records = defence.player_records(players, goals, "2024-25").set_index("athlete_id")
+    # A conceded 2 in 180 minutes: d1 was on for 1 in 150 minutes, off for 1 in 30 minutes
+    assert records.loc["d1", ["off_minutes", "off_per90", "on_off"]].tolist() == pytest.approx([30, 3.0, 2.4])
+    assert records.loc["d2", ["off_minutes", "off_per90", "on_off"]].tolist() == pytest.approx([150, 0.6, -2.4])
+
+    impact = pd.DataFrame({"team": ["A", "A", "A", "B"], "athlete_id": ["k1", "d1", "d2", "k2"],
+                           "pos": ["G", "D", "D", "G"], "in_xi": [True, True, False, True]})
+    ranked = defence.usual_xi_records(records.reset_index(), impact).set_index("athlete_id")
+    assert set(ranked.index) == {"k1", "d1", "k2"}
+    assert ranked.loc["k2", ["per90_rank", "clean_sheets_rank", "n_ranked"]].tolist() == [1, 1, 2]
+    assert ranked.loc["k1", ["per90_rank", "clean_sheets_rank"]].tolist() == [2, 1]  # 2 vs 1 conceded; tied clean sheets
+
+    assert ranked.loc["d1", ["on_off_rank", "n_on_off_ranked"]].tolist() == [1, 1]
+    assert pd.isna(ranked.loc["k1", "on_off_rank"])                   # never off the pitch
+
+    (_, keepers), (_, defenders), (_, on_off) = defence_frames(ranked.reset_index(), "2024-25")
+    assert on_off.A.iat[0] == "d1: 0.60 on vs 3.00 off (+2.40, #1)"
+    assert list(keepers.columns) == ["stat", "A", "B"] and keepers.A.tolist()[:3] == ["k1", 2, 2]
+    assert list(defenders.columns) == ["#", "A"] and defenders.A.iat[0].startswith("d1: 1 in 2 matches")

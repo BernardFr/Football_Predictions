@@ -226,3 +226,19 @@ def test_team_vs_prediction_and_stats_tables():
     assert worst_defence.goals_against.is_monotonic_decreasing
     assert frames[0][1].team.iloc[0] == "A" and frames[4][1].team.iloc[0] == "A"
     assert frames[1][1].wins_vs_pred.is_monotonic_increasing
+
+
+def test_upcoming_sheet_sorted_by_confidence_decreasing():
+    from pathlib import Path
+    from football_predictions import report
+    upcoming = pd.DataFrame({"date": pd.to_datetime(["2026-11-28", "2026-11-29", "2026-11-30"]),
+                             "home": ["A", "C", "E"], "away": ["B", "D", "F"], "pick": ["H", "A", "D"],
+                             "confidence": [0.45, 0.70, 0.55], "p_home": [0.45, 0.10, 0.25],
+                             "p_draw": [0.30, 0.20, 0.55], "p_away": [0.25, 0.70, 0.20],
+                             "exp_gd": [0.5, -1.2, 0.0], "gd_lo80": [-1, -3, -2], "gd_hi80": [2, 1, 2],
+                             "xg_home": [1.6, 0.8, 1.1], "xg_away": [1.1, 2.0, 1.1]})
+    path = Path(__file__).parent / "upcoming_sort_report.xlsx"
+    report.write(path, "Test", upcoming, None, "2026-27", None, None, None, 0.6, 0.45)
+    sheet = pd.read_excel(path, sheet_name="Upcoming")
+    assert sheet.confidence.tolist() == [0.70, 0.55, 0.45]
+    assert sheet.home.tolist() == ["C", "E", "A"]

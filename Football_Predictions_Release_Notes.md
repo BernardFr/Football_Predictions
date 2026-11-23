@@ -9,6 +9,7 @@
 
 | Date       | Changes                                                      |
 | ---------- | ------------------------------------------------------------ |
+| 11/23/2026 | • Added `Player Impact` tab in the report. See notes in `Premier League Game Prediction Model.md` |
 | 11/19/2026 | • Added `./Docs/architecture.html` which documents architecture<br />• Added more Stats |
 | 11/16/2026 | • v1.0                                                       |
 

@@ -11,3 +11,6 @@ __pycache__/
 
 # Downloaded data cache (re-fetched by the tool)
 data/
+
+# Test output files
+tests/*.xlsx

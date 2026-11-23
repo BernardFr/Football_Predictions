@@ -13,6 +13,12 @@ The base model's expected goals are then scaled:
   goals_for ~ Poisson(xg_base * exp(b1*miss_own + b2*att_own + b3*miss_opp + b4*gk_opp))
 The four b's are fitted (ridge-shrunk toward 0, i.e. toward "no effect") on past matches, using
 the base model's walk-forward expected goals as the offset. The evaluation is walk-forward too.
+
+Player impact: drop one player from the team's usual XI (the 11 players with the most recent
+playing time), start the best backup at the same position instead, and push the change in
+features through the fitted b's into the team's average expected goals for and against.
+The result is the drop in expected points (3 x P(win) + P(draw)) and in expected goal
+difference per match. Players outside the usual XI have no impact on the model.
 """
 
 import json
@@ -41,6 +47,10 @@ MIN_ATTACK_OUTPUT = 0.05        # floor on goals + assists per 90, so the log ra
 REGULAR_GK_SHARE = 0.6          # a keeper with this share of GK minutes is the regular
 DEFAULT_RIDGE = 5.0
 DEFAULT_MIN_TRAIN = 150         # matches needed before the coefficients are fitted
+PLACEHOLDER_ID = "__backup__"   # an unknown backup: no playing time, position-prior output
+WIN_POINTS = 3
+DRAW_POINTS = 1
+IMPACT_COLS = ["team", "athlete_id", "player", "pos", "share", "in_xi", "impact_pts", "impact_gd"]
 JSON_INDENT = 2
 
 
@@ -219,6 +229,78 @@ def compare(ev: pd.DataFrame) -> pd.DataFrame:
                          "rps": metrics.rps(P, Y).mean(), "log_loss": metrics.log_loss(P, Y).mean(),
                          "accuracy": (P.argmax(1) == Y.argmax(1)).mean(), "goal_loglik": ll})
     return pd.DataFrame(rows)
+
+
+# ------------------------------------------------------------------ player impact
+def usual_xi(hist: pd.DataFrame, n_hist: int = HISTORY_MATCHES, decay: float = HISTORY_DECAY) -> pd.DataFrame:
+    """
+    Players in the team's last n_hist matches, ranked by decay-weighted minutes.
+    Columns: athlete_id, player, pos, share (of the team's weighted minutes), in_xi (top STARTING_XI).
+    """
+    order = hist.drop_duplicates("event_id").sort_values("date", ascending=False).event_id.head(n_hist).tolist()
+    weights = {eid: decay ** k for k, eid in enumerate(order)}
+    recent = hist[hist.event_id.isin(order)]
+    recent = recent.assign(wmin=recent.event_id.map(weights) * recent.minutes)
+    latest = recent.sort_values("date").groupby("athlete_id").last()
+    usage = (recent.groupby("athlete_id").wmin.sum() / (sum(weights.values()) * STARTING_XI * MATCH_MINUTES)).rename("share")
+    usage = usage[usage > 0].sort_values(ascending=False).reset_index()
+    usage["player"] = usage.athlete_id.map(latest.player)
+    usage["pos"] = usage.athlete_id.map(recent.groupby("athlete_id").pos.agg(lambda positions: positions.mode().iat[0]))
+    usage["in_xi"] = usage.index < STARTING_XI
+    return usage
+
+
+def team_xg(base: pd.DataFrame, season: str) -> pd.DataFrame:
+    """Each team's average expected goals for and against in `season`, and the average rho, from base predictions."""
+    games = base[base.season == season]
+    sides = pd.concat([games[["home", "xg_home", "xg_away"]].set_axis(["team", "xg_for", "xg_against"], axis=1),
+                       games[["away", "xg_away", "xg_home"]].set_axis(["team", "xg_for", "xg_against"], axis=1)])
+    return sides.groupby("team").mean().assign(rho=games.rho.mean())
+
+
+def _expected_points(xg_for: float, xg_against: float, rho: float) -> float:
+    probs = summarize(xg_for, xg_against, rho)
+    return WIN_POINTS * probs["p_home"] + DRAW_POINTS * probs["p_draw"]
+
+
+def team_player_impact(hist: pd.DataFrame, coefs: np.ndarray, xg: pd.Series) -> pd.DataFrame:
+    """
+    Impact of each player in the team's recent matches: the drop in expected points and goal
+    difference per match when the player misses the usual XI and the best same-position backup
+    starts instead. xg holds the team's average xg_for, xg_against and rho.
+    """
+    usage = usual_xi(hist)
+    xi = usage[usage.in_xi]
+    base = team_features(hist, xi)
+    if base is None:
+        return usage.assign(impact_pts=np.nan, impact_gd=np.nan)
+    miss_own, att_own, miss_opp, gk_opp = coefs
+    base_pts = _expected_points(xg.xg_for, xg.xg_against, xg.rho)
+    impact_pts, impact_gd = pd.Series(0.0, index=usage.index), pd.Series(0.0, index=usage.index)
+    bench = usage[~usage.in_xi]
+    for idx, row in xi.iterrows():
+        backups = bench[bench.pos == row.pos]
+        backup = backups.head(1) if not backups.empty else pd.DataFrame({"athlete_id": [PLACEHOLDER_ID], "pos": [row.pos]})
+        without = team_features(hist, pd.concat([xi.drop(idx), backup])[["athlete_id", "pos"]])
+        delta = {feature: without[feature] - base[feature] for feature in FEATURES}
+        xg_for = xg.xg_for * np.exp(miss_own * delta["miss"] + att_own * delta["att"])
+        xg_against = xg.xg_against * np.exp(miss_opp * delta["miss"] + gk_opp * delta["gk"])
+        impact_pts[idx] = base_pts - _expected_points(xg_for, xg_against, xg.rho)
+        impact_gd[idx] = (xg.xg_for - xg.xg_against) - (xg_for - xg_against)
+    return usage.assign(impact_pts=impact_pts, impact_gd=impact_gd)
+
+
+def player_impact(players: pd.DataFrame, coefs: np.ndarray, xg_table: pd.DataFrame, season: str) -> pd.DataFrame:
+    """
+    Player impact for every team that played in `season`, as of its latest match.
+    xg_table: team_xg() output; teams missing from it are skipped.
+    """
+    current = set(players[players.season == season].team) & set(xg_table.index)
+    frames = [team_player_impact(group, coefs, xg_table.loc[team]).assign(team=team)
+              for team, group in players[players.team.isin(current)].groupby("team")]
+    if not frames:
+        return pd.DataFrame(columns=IMPACT_COLS)
+    return pd.concat(frames, ignore_index=True)[IMPACT_COLS]
 
 
 def save_coefs(path, coefs: np.ndarray, n_matches: int):

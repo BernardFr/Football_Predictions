@@ -28,7 +28,7 @@ from custom_logger import custom_logger as logger
 from custom_logger import setup_logger
 
 from . import backtest as bt
-from . import cups, ledger, lineups, report, teammap
+from . import cups, defence, ledger, lineups, report, scorers, teammap
 from .config import DEFAULT_CONFIG_PATH, Config, read_toml_config, shift_season
 from .csvio import read_csv, write_csv
 from .espn import DEFAULT_DELAY_SECONDS, DEFAULT_UA, STATE_POST, STATE_PRE, EspnClient, has_lineups, parse_lineups
@@ -55,6 +55,9 @@ LINEUP_COEFS_FILE = "lineup_coefs.json" # stores lineup adjustment coefficients
 LINEUP_BACKTEST_FILE = "lineup_backtest.csv" # stores lineup backtest results
 LINEUP_COMPARISON_FILE = "lineup_comparison.csv" # stores comparison of base vs lineup predictions
 LINEUP_UPCOMING_FILE = "lineup_upcoming.csv"
+PLAYER_IMPACT_FILE = "player_impact.csv"   # stores each player's impact on the lineup model
+SCORERS_FILE = "valuable_scorers.csv"       # stores first, equalizing and go-ahead goals per player
+DEFENCE_FILE = "defence_records.csv"        # stores goals conceded and clean sheets of usual-XI keepers and defenders
 REPORT_FILE = "{league}_report.xlsx"   # under reports/
 MIN_CSV_BYTES = 2                      # smaller files hold no data (an empty frame writes a bare newline)
 JSON_INDENT = 2
@@ -264,7 +267,9 @@ class Run:
                      read(TUNING_FILE, ()), conf["high"], conf["medium"],
                      lineup_comparison=read(LINEUP_COMPARISON_FILE, ()),
                      lineup_coefs=json.loads(coefs.read_text()) if coefs.exists() else None,
-                     lineup_upcoming=read(LINEUP_UPCOMING_FILE))
+                     lineup_upcoming=read(LINEUP_UPCOMING_FILE),
+                     player_impact=read(PLAYER_IMPACT_FILE, ()), valuable_scorers=read(SCORERS_FILE, ()),
+                     defence_records=read(DEFENCE_FILE, ()))
         logger.info(f"report -> {path}")
 
     def update(self):
@@ -305,6 +310,15 @@ class Run:
         ev, coefs = lineups.walk_forward(feat, base, float(lc.get("ridge", lineups.DEFAULT_RIDGE)),
                                         int(lc.get("min_train_matches", lineups.DEFAULT_MIN_TRAIN)))
         lineups.save_coefs(self.state / LINEUP_COEFS_FILE, coefs, len(feat))
+        impact = lineups.player_impact(players, coefs, lineups.team_xg(base, self.season), self.season)
+        if not impact.empty:
+            impact.to_csv(self.state / PLAYER_IMPACT_FILE, index=False)
+        goals = scorers.goal_table(client, self.league.espn, events, tm)
+        if not goals.empty:
+            scorers.valuable_scorers(goals, self.season).to_csv(self.state / SCORERS_FILE, index=False)
+            records = defence.player_records(players, goals, self.season)
+            if not records.empty and not impact.empty:
+                defence.usual_xi_records(records, impact).to_csv(self.state / DEFENCE_FILE, index=False)
         if not ev.empty:
             write_csv(ev, self.state / LINEUP_BACKTEST_FILE)
             comp = lineups.compare(ev)

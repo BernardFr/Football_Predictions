@@ -364,3 +364,112 @@ I tested it on the incomplete GitHub copy of the results, which is why I haven't
   - **PNG:** the combined histogram is drawn as orange bars, with each season as a dot, since 37 groups of four bars would be unreadable in a static image.
 - **Order:** scores now run from the heaviest home defeat on the left to the biggest home win on the right, with your tie-break. On the test data the sequence is 0-6, 0-5, 2-6, 1-5, 0-4 … 2-3, 1-2, 0-1, 0-0, 1-1, 2-2, 3-3, 4-4, 1-0, 2-1, 3-2 … 5-0, 7-0. The draws are shaded, and the chart labels the home-defeat and home-win sides.
 
+
+# Player Impact Tab: How the Scores Are Computed
+
+The **Player impact** tab in `reports/EPL_report.xlsx` has one column per team. The `lineups-backtest` command calculates all the scores and saves them in `state/EPL/`. The `report` command then reads these files. The tab has eight tables, in this order.
+
+| Table | Source module | Saved in |
+|---|---|---|
+| Usual XI, Most impact, No impact | `lineups.py` | `player_impact.csv` |
+| Top 5 scorers, Valuable scorers | `scorers.py` | `valuable_scorers.csv` |
+| Goalkeepers, Defenders, Defenders on/off | `defence.py` | `defence_records.csv` |
+
+All data comes from ESPN: the match-day squads (starters, substitution minutes, goals and assists) and the list of goals in each match.
+
+## 1. Usual XI
+
+The usual XI is the 11 players with the most playing time in the team's last 19 league matches. Recent matches count more. The k-th most recent match has the weight 0.85^k, so the last match has weight 1 and the 10th match back has weight 0.2.
+
+- **Share** = the player's weighted minutes / (sum of match weights × 11 × 90).
+- The table sorts the players by position (G, D, M, F), then by share.
+
+The window of 19 matches can include matches from last season. A player who changed clubs can therefore show in the lists of two teams.
+
+## 2. Most impact and No impact
+
+These scores use the lineup model. The lineup model compares an XI with the team's recent XIs and uses three features:
+
+| Feature | Meaning |
+|---|---|
+| `miss` | The share of the usual playing time that is missing from the XI |
+| `att` | log(attacking output of the XI / attacking output of the usual XIs). Output is goals + assists per 90, shrunk toward a position average: G 0, D 0.08, M 0.22, F 0.45. The shrinkage is equal to 4 extra matches at the position average. |
+| `gk` | 1 if the regular keeper (60% or more of the keeper minutes) does not start |
+
+The model scales the team's expected goals with four fitted coefficients:
+
+- Goals for × exp(b1 × `miss` + b2 × `att`)
+- Goals against × exp(b3 × `miss` + b4 × `gk`)
+
+The `lineups-backtest` command fits the coefficients again at each run. It saves them in `state/EPL/lineup_coefs.json` as `miss_own` (b1), `att_own` (b2), `miss_opp` (b3) and `gk_opp` (b4).
+
+**To calculate the impact of a player in the usual XI:**
+
+1. Remove the player from the usual XI.
+2. Put the best backup at the same position in the XI. The best backup is the non-XI player with the largest share. If there is no backup, use an unknown player with the position average output.
+3. Calculate the change in `miss`, `att` and `gk` between the two XIs.
+4. Scale the team's average expected goals for and against this season with the four coefficients. The averages come from the base model's walk-forward predictions.
+5. Calculate the win, draw and loss probabilities with the Dixon-Coles model, before and after the change.
+
+The table shows two numbers for each player:
+
+- **Points**: the change in expected points per match. Expected points = 3 × P(win) + P(draw).
+- **GD**: the change in expected goal difference per match.
+
+For example, "Kai Havertz (−0.03 pts, −0.05 GD)" means that Arsenal lose 0.03 points and 0.05 goals of goal difference per match without him.
+
+**Most impact** shows the 3 players who cost the team the most points. **No impact** shows the players with a change of less than 0.005 points per match. A player outside the usual XI always has no impact, because the model uses only the starting XI.
+
+The values are small when the fitted coefficients are small. Some players have a negative impact: the model expects the team to do better with the backup. When `gk_opp` (b4) is negative, all regular keepers have a negative impact. A negative `gk_opp` means "a backup keeper concedes fewer goals", which is probably noise in a small sample.
+
+The two numbers usually have the same sign. They can be different when the absence of a player gives fewer goals at the two ends: a draw then becomes more likely, and that helps a weaker team.
+
+## 3. Top 5 scorers
+
+This table shows the 5 players with the most goals for the team this season. Own goals are not counted.
+
+## 4. Valuable scorers
+
+Each goal gets a class from the score just before the goal, from the side of the scoring team:
+
+| Class | Score before the goal | Examples |
+|---|---|---|
+| First goal | The team has not scored yet | 0-0, 0-1, 0-2 |
+| Equalizer | The team is one goal behind | 0-1, 1-2 |
+| Go-ahead | The score is level | 0-0, 1-1 |
+
+**Combined** = first goals + equalizers + go-ahead goals, with equal weight. One goal can be in two classes. For example, a goal at 0-0 is a first goal and a go-ahead goal, so it adds 2 to Combined.
+
+Own goals change the score, but no player gets credit for them. The table shows the top 3 players in each class. Top 5 scorers is not part of Combined.
+
+## 5. Goalkeepers and Defenders
+
+These tables show this season's record for the keeper and the defenders of each usual XI.
+
+- **Conceded**: the goals that the team conceded while the player was on the pitch. The calculation uses the substitution minutes. Own goals for the opponent are included.
+- **Per 90**: conceded / minutes played × 90.
+- **Clean sheet**: a match in which the player played 60 minutes or more, and the team conceded no goals while the player was on the pitch.
+
+The ranks compare all the usual XI keepers (20) or all the usual XI defenders (approximately 70). Rank 1 is the fewest goals conceded per 90, or the most clean sheets. Players with equal values share the better rank.
+
+The ranks use goals per 90, not the total, so that players with fewer minutes compare fairly. These numbers mostly measure the team's defence, not only the player. For example, all four Arsenal defenders rank in the top half, and three of them are in the top 10.
+
+The data does not include red cards. A player who gets a red card counts as on the pitch until full time.
+
+## 6. Defenders on/off
+
+This table compares the team's goals conceded with the defender on the pitch and off the pitch.
+
+- **On**: the goals conceded per 90 while the defender was on the pitch (the same value as Per 90 above).
+- **Off**: the goals conceded per 90 while the defender was off the pitch. Off includes the matches that the defender missed. Each team match counts as 90 minutes.
+- **Difference** = Off − On. A positive difference means that the team concedes fewer goals with the defender.
+
+The rank compares the defenders that have a difference. Rank 1 is the largest difference.
+
+The table shows a difference only when the defender was off the pitch for 270 minutes or more (3 full matches). For other defenders, the table shows "too few minutes off" and the minutes off. Regular starters therefore show no difference until they miss approximately 3 matches.
+
+Three limits apply:
+
+- The samples are small early in the season. One or two goals can change the result.
+- The difference is relative to the defender's own team. It shows how much the team depends on the defender, not how good the defender is compared with defenders at other clubs.
+- Each defender is measured alone. If two defenders are usually absent together, both get the same credit or blame.

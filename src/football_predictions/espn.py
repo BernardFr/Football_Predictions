@@ -43,6 +43,8 @@ DEFAULT_SUB_MINUTE = 60              # substitution flagged but no minute given
 GOALKEEPER_CODES = ("G", "GK")
 GOALKEEPER = "G"
 DEFAULT_POSITION = "M"
+NOT_SUBBED_OFF = float("inf")       # off_minute of a player still on the pitch at the final whistle
+GOAL_COLS = ["event_id", "team_id", "athlete_id", "player", "minute", "own_goal", "penalty"]
 
 
 class EspnError(RuntimeError):
@@ -274,7 +276,10 @@ def _stat(player: dict, *names) -> float:
 
 
 def parse_lineups(summary: dict, event_id: str) -> pd.DataFrame:
-    """One row per player in the match-day squad: starter flag, minutes, goals + assists."""
+    """
+    One row per player in the match-day squad: starter flag, minutes, goals + assists, and the
+    match minutes the player came on and went off (both 0 for an unused substitute).
+    """
     rows = []
     for team_roster in summary.get("rosters", []):
         team = team_roster.get("team", {})
@@ -289,6 +294,7 @@ def parse_lineups(summary: dict, event_id: str) -> pd.DataFrame:
                 start, end = sub_in, (sub_out if sub_out is not None else MATCH_MINUTES)
             else:
                 start = end = 0
+            off_minute = sub_out if sub_out is not None else (NOT_SUBBED_OFF if end else 0)
             rows.append({
                 "event_id": str(event_id), "team_id": str(team.get("id")),
                 "athlete_id": str(ath.get("id") or ath.get("displayName")),
@@ -296,8 +302,27 @@ def parse_lineups(summary: dict, event_id: str) -> pd.DataFrame:
                 "pos": position_group((player.get("position") or {}).get("abbreviation")),
                 "starter": starter, "minutes": max(min(end, MATCH_MINUTES) - min(start, MATCH_MINUTES), 0),
                 "ga": _stat(player, "totalGoals") + _stat(player, "goalAssists"),
+                "on_minute": start, "off_minute": off_minute,
             })
     return pd.DataFrame(rows)
+
+
+def parse_goals(summary: dict, event_id: str) -> pd.DataFrame:
+    """
+    One row per goal, in match order. team_id is the team the goal counts for. For an own goal,
+    the player is the opponent who put the ball in the net.
+    """
+    competitions = (summary.get("header") or {}).get("competitions") or [{}]
+    rows = []
+    for play in competitions[0].get("details") or []:
+        if not play.get("scoringPlay"):
+            continue
+        ath = ((play.get("participants") or [{}])[0]).get("athlete") or {}
+        rows.append({"event_id": str(event_id), "team_id": str((play.get("team") or {}).get("id")),
+                     "athlete_id": str(ath.get("id") or ath.get("displayName")), "player": ath.get("displayName"),
+                     "minute": _clock((play.get("clock") or {}).get("displayValue")),
+                     "own_goal": bool(play.get("ownGoal")), "penalty": bool(play.get("penaltyKick"))})
+    return pd.DataFrame(rows, columns=GOAL_COLS)
 
 
 def has_lineups(lineups: pd.DataFrame) -> bool:

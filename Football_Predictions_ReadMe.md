@@ -121,6 +121,30 @@ from past matches, shrunk toward "no effect", then refitted before every match d
 and goal log-likelihood, which reacts sooner than W/D/L scores). Lineup predictions are logged to
 the ledger as variant `lineup`, so **Live track record** scores them separately from the base model.
 
+The **Player impact** sheet has one column per team. It shows these tables:
+
+- **Usual XI**: the 11 players with the most recent minutes, by position.
+- **Most impact**: the 3 players whose absence costs the most expected points per match. The
+  team's average expected goals are scaled as if the player misses the usual XI and the best
+  backup at the same position starts. Expected points = 3 x P(win) + P(draw). The change in
+  expected goal difference is also shown.
+- **No impact**: players under 0.005 points per match. Players outside the usual XI always have
+  no impact, because the model only uses the starting XI.
+- **Top 5 scorers**: this season's goals per player. Own goals are not counted.
+- **Valuable scorers**: this season's top 3 players for first goals (the team's first goal of the
+  match), equalizers (the goal levels the score) and go-ahead goals (the goal puts the team ahead
+  from a level score). **Combined** ranks players by the sum of the three counts (equal weight).
+  Own goals are not credited to a player.
+- **Goalkeepers** and **Defenders**: this season's record of the keeper and defenders in each
+  usual XI. "Conceded" counts the goals the team conceded while the player was on the pitch. A
+  clean sheet needs 60 or more minutes with no goals conceded. Ranks compare all usual XI keepers
+  (or defenders). Rank 1 is the fewest goals conceded per 90 minutes, or the most clean sheets.
+  These numbers mostly measure the team's defence, not only the player.
+- **Defenders on/off**: the team's goals conceded per 90 minutes with the defender on the pitch
+  vs. off the pitch. Off includes the matches the defender missed. A positive difference means
+  the team concedes less with the defender. The comparison needs 270 or more minutes off the
+  pitch, so regular starters show "too few minutes off" until they miss about 3 matches.
+
 `lineups` covers games in the next 36 hours whose XIs are both published; it lists the others as
 "not published yet". Re-run it closer to kickoff.
 
