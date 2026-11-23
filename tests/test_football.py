@@ -242,3 +242,14 @@ def test_upcoming_sheet_sorted_by_confidence_decreasing():
     sheet = pd.read_excel(path, sheet_name="Upcoming")
     assert sheet.confidence.tolist() == [0.70, 0.55, 0.45]
     assert sheet.home.tolist() == ["C", "E", "A"]
+
+
+def test_player_impact_sheet_freezes_first_column():
+    from pathlib import Path
+    from openpyxl import load_workbook
+    from football_predictions import report
+    impact = pd.DataFrame({"team": ["A", "B"], "athlete_id": ["1", "2"], "player": ["P1", "P2"], "pos": ["G", "G"],
+                           "share": [0.09, 0.09], "in_xi": [True, True], "impact_pts": [0.04, 0.0], "impact_gd": [0.06, 0.0]})
+    path = Path(__file__).parent / "player_impact_freeze_report.xlsx"
+    report.write(path, "Test", None, None, "2026-27", None, None, None, 0.6, 0.45, player_impact=impact)
+    assert load_workbook(path)["Player impact"].freeze_panes == report.FREEZE_FIRST_COLUMN

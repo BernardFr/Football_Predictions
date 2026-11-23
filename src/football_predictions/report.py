@@ -27,6 +27,7 @@ MIN_COL_WIDTH = 9
 MAX_COL_WIDTH = 34
 ROWS_BETWEEN_TABLES = 2
 FREEZE_BELOW_HEADER = "A2"
+FREEZE_FIRST_COLUMN = "B1"     # team-column sheets: keep the label column visible
 DRAW_LABEL = "Draw"
 BOOKMAKER_COLS = ["bk_home", "bk_draw", "bk_away"]
 PREDICTION_COLS = ["date", "home", "away", "pick_label", "confidence", "band", "p_home", "p_draw", "p_away",
@@ -251,6 +252,7 @@ def write(path: Path, league_name: str, upcoming, backtest, season, ledger, rati
             impact_tables += defence_frames(defence_records, season)
         if impact_tables:
             _sheet(xw, "Player impact", impact_tables)
+            xw.sheets["Player impact"].freeze_panes = FREEZE_FIRST_COLUMN
         if ledger is not None and not ledger.empty:
             settled = ledger[ledger.result.notna()].copy()
             frames = []
