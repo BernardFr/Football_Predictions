@@ -19,7 +19,7 @@ The report is `reports/EPL_report.xlsx`. Add `--all` to run every enabled league
 
 ## The feedback loop
 
-Run `update` after each round of games (or daily). It:
+Run `update` after each matchweek (or daily). It:
 
 1. downloads the latest results,
 2. scores every prediction you logged before kickoff (`state/EPL/ledger.csv`), which is your live track record,
@@ -27,6 +27,7 @@ Run `update` after each round of games (or daily). It:
 4. predicts the fixtures in the next 10 days (from football-data's `fixtures.csv`) and logs them,
 5. rebuilds the Excel report.
 
+Then run `football-predictions site` and push `site/` to publish the website (see **Website**).
 Re-tune once a season (`tune`), e.g. in July once the previous season is complete.
 
 ## What each prediction contains
@@ -41,10 +42,52 @@ Re-tune once a season (`tune`), e.g. in July once the previous season is complet
 | likely_score | Single most likely scoreline |
 | bk_home / bk_draw / bk_away | Bookmaker probabilities (margin removed), for comparison |
 
-The **Backtest** sheet shows how much to trust these. It compares the model with closing
-bookmaker odds and with a base rate, using ranked probability score (RPS; lower is better), log
-loss and accuracy. It also shows the hit rate of each confidence band and how often results fell
-inside the 80% interval.
+## The report
+
+`reports/EPL_report.xlsx` has these sheets. A sheet is left out when its data does not exist yet.
+
+| Sheet | Content |
+|---|---|
+| Upcoming | The predictions for the games in the next 10 days, most confident first |
+| Backtest | How much to trust the predictions: the model vs. closing bookmaker odds and a base rate (RPS, lower is better; log loss; accuracy), the hit rate of each confidence band, how often results fell inside the 80% interval, and the season grade |
+| Grades | The grade of the season, of each matchweek and of each game of the backtest (see **Grading predictions**) |
+| Predictability | The teams from most to least predictable |
+| Calibration | Does a 30% forecast happen 30% of the time? |
+| Backtest detail | Every backtest prediction with its result |
+| Stats | Teams that beat or fell short of their predictions; best and worst attacks and defences |
+| Lineup predictions, Lineup backtest | The lineup-adjusted predictions and their test (see **Enhanced predictions from starting XIs**) |
+| Impact Players | The players who matter most to each team |
+| Live track record | The predictions logged before kickoff, scored on the results |
+| Team ratings, Tuning | The fitted ratings and the tuning grid |
+
+The backtest predicts every game of the season so far with only the results known before that game
+(walk-forward), so its scores are an honest test of the model.
+
+## Grading predictions
+
+The grade (`grading.py`) tells how good one prediction was, or a group of predictions. It compares the
+predicted score probabilities with the league's usual scorelines (the previous seasons):
+
+- 0 means no better than the usual scorelines. +100 means certain and right. Below 0 means worse.
+- It weighs the result (50%), the goal difference (25%) and each side's goals (25%). Change the weights
+  in `PART_WEIGHTS` in `grading.py`.
+- Each part uses the ranked probability score (RPS), so probability placed near the actual score also earns
+  credit. A pick of +1 goal difference scores better than a pick of -1 when the result is +2.
+
+A group of games (a matchweek, a team's games, the season) adds up the RPS of its games before the comparison,
+so one odd game does not dominate it. One game's grade is mostly luck. Judge the model on the matchweek grade
+and the season grade. For comparison, the model graded +6 after 11 matchweeks of 2026-27, and bookmakers
+usually do about 10% better than base rates.
+
+**Matchweeks.** The data has no matchweek numbers, so the dates set the matchweeks. A new matchweek starts after 2 or more
+days with no games, or on a date when a team would play a second time in the matchweek.
+
+**Predictability.** A team's grade is the grade of the predictions for the games it played. A predictable
+team plays to its rating. The grade belongs to the game, not only to the team: a low grade can also come
+from the team's opponents.
+
+The grades show in the report (Backtest, Grades and Predictability sheets) and on the website (the Last
+matchweek table and the Season predictions tab).
 
 ## How the model works
 
@@ -124,7 +167,7 @@ fewer goals. The
 and goal log-likelihood, which reacts sooner than W/D/L scores). Lineup predictions are logged to
 the ledger as variant `lineup`, so **Live track record** scores them separately from the base model.
 
-The **Player impact** sheet has one column per team. It shows these tables:
+The **Impact Players** sheet has one column per team. It shows these tables:
 
 - **Usual XI**: the 11 players with the most recent minutes, by position.
 - **Most impact**: the 3 players whose absence costs the most expected points per match. The
@@ -191,14 +234,14 @@ https://bernardfr.github.io/Football_Predictions/. The site has four tabs:
 
 | Tab | Content |
 |---|---|
-| Predictions | The upcoming games (from `upcoming.csv`), then the last round: the predictions logged before kickoff vs. the results. Picks are shaded green (right) or red (wrong). |
-| Season predictions | Empty for now. |
+| Predictions | The upcoming games (from `upcoming.csv`), then the last matchweek: the predictions logged before kickoff vs. the results, with the grade of each game and of the matchweek. Picks are shaded green (right) or red (wrong). |
+| Season predictions | How good this season's predictions were: the season grade, the teams from most to least predictable, and the grade of each matchweek and each game (from the backtest). The same data as the Grades and Predictability sheets. |
 | Impact players | The tables of the report's Impact Players sheet, one team at a time. A link such as `players.html#chelsea` opens one team. |
 | Scoring statistics | The scoreline histogram, with only the current season ticked. |
 
-The last round is the base model's scored games from the latest result back 4 days (`LAST_ROUND_DAYS` in
-`website.py`). The pages come from the templates in `src/football_predictions/templates/`; edit their text
-there.
+The last matchweek is the latest matchweek of the base model's scored predictions (see **Matchweeks** under
+**Grading predictions**). The pages come from the templates in `src/football_predictions/templates/`.
+Edit their text there.
 
 ## Commands
 

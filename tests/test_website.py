@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from football_predictions import website
+from football_predictions.grading import Grader
 from football_predictions.histogram import ScorelineStats, chart_fragment, scoreline_table
 
 SITE_DIR = Path(__file__).resolve().parent / "test_site"
@@ -22,13 +23,13 @@ def prediction(date, home, away, pick, p_home, p_draw, p_away, **extra) -> dict:
             "confidence": max(p_home, p_draw, p_away), "p_home": p_home, "p_draw": p_draw, "p_away": p_away,
             "exp_gd": 0.4, "gd_lo80": -1, "gd_hi80": 2, "likely_score": "1-1",
             "highest_prob_score_1": "1-1 13%", "highest_prob_score_2": "1-0 11%", "highest_prob_score_3": "2-1 9%",
-            "xg_home": 1.5, "xg_away": 1.1, "odds_h": 2.0, "odds_d": 3.5, "odds_a": 4.0, **extra}
+            "xg_home": 1.5, "xg_away": 1.1, "rho": -0.05, "odds_h": 2.0, "odds_d": 3.5, "odds_a": 4.0, **extra}
 
 
 def ledger_frame() -> pd.DataFrame:
     settled = dict(variant="base")
     rows = [
-        prediction("2026-11-14", "Old", "Round", "H", .5, .3, .2, hg=2, ag=0, result="H", **settled),   # an earlier round
+        prediction("2026-11-14", "Old", "Town", "H", .5, .3, .2, hg=2, ag=0, result="H", **settled),   # an earlier matchweek
         prediction("2026-11-21", "Arsenal", "Chelsea", "H", .5, .3, .2, hg=1, ag=1, result="D", **settled),
         prediction("2026-11-22", "Leeds", "Fulham", "A", .2, .3, .5, hg=0, ag=2, result="A", **settled),
         prediction("2026-11-22", "Leeds", "Fulham", "A", .2, .3, .5, hg=0, ag=2, result="A", variant="lineup"),
@@ -70,7 +71,7 @@ def test_every_page_and_static_file_is_written_with_navigation():
         assert not re.search(r"\$\{[a-z_]+\}", pages[name])                # every placeholder filled
         assert f'<a href="{name}" aria-current="page">' in pages[name]  # its own tab is marked
         assert pages[name].count("<nav>") == 1 and "<footer>" in pages[name]
-    assert "Coming soon" in pages["season.html"]
+    assert "No graded games yet" in pages["season.html"]                # no grader in site_data()
 
 
 def test_predictions_page_lists_upcoming_games_by_date_and_escapes_names():
@@ -81,14 +82,39 @@ def test_predictions_page_lists_upcoming_games_by_date_and_escapes_names():
     assert website.MISSING in page                             # Brighton has no bookmaker odds
 
 
-def test_last_round_is_the_base_models_settled_games_of_the_latest_days():
-    played = website.last_round(ledger_frame())
-    assert list(played.home) == ["Arsenal", "Leeds"]            # not the earlier round, the lineup row or the unplayed game
+def test_last_matchweek_is_the_base_models_settled_games_of_the_latest_days():
+    played = website.last_matchweek(ledger_frame())
+    assert list(played.home) == ["Arsenal", "Leeds"]            # not the earlier matchweek, the lineup row or the unplayed game
     page = build(site_data(), "full")["index.html"]
-    assert "Last round: Sat 21 Nov to Sun 22 Nov" in page
+    assert "Last matchweek: Sat 21 Nov to Sun 22 Nov" in page
     assert "<strong>1 of 2</strong> picks right (50%)" in page
     assert "<strong>1</strong> exact score " in page
     assert len(re.findall(r'<tr class="hit">', page)) == 1 and len(re.findall(r'<tr class="miss">', page)) == 1
+
+
+def test_last_matchweek_has_a_grade_per_game_and_a_matchweek_grade_when_a_grader_is_given():
+    baseline = pd.DataFrame({"hg": [1, 0, 2, 1], "ag": [1, 0, 1, 2]})
+    page = build(site_data(grader=Grader.from_matches(baseline)), "graded")["index.html"]
+    assert "<th class=\"num\">Grade</th>" in page
+    assert len(re.findall(r'<td class="num">[+-]\d+</td></tr>', page)) == 2
+    assert re.search(r"Matchweek grade <strong>[+-]\d+</strong> \(result [+-]\d+, goal difference [+-]\d+, goals [+-]\d+\)", page)
+    assert "Grade</th>" not in build(site_data(), "full")["index.html"]   # no grader, no column
+
+
+def test_signed_never_shows_minus_zero():
+    assert [website.signed(value) for value in (-0.3, 0.4, 12.6, -3.5)] == ["+0", "+0", "+13", "-4"]
+
+
+def test_season_page_shows_season_grade_teams_matchweeks_and_games():
+    ledger = ledger_frame()
+    backtest = ledger[(ledger.variant == "base") & ledger.result.notna()]
+    baseline = pd.DataFrame({"hg": [1, 0, 2, 1], "ag": [1, 0, 1, 2]})
+    page = build(site_data(backtest=backtest, grader=Grader.from_matches(baseline)), "season")["season.html"]
+    assert re.search(r'<span class="grade-value">[+-]\d+</span> season grade over 3 games in 2 matchweeks', page)
+    for team in ("Arsenal", "Chelsea", "Leeds", "Fulham", "Old", "Town"):
+        assert f"<td>{team}</td>" in page
+    assert "Sat 21 Nov to Sun 22 Nov" in page                             # matchweek 2's dates
+    assert "All 3 games, latest first" in page
 
 
 def test_players_page_has_one_section_per_team_with_its_own_players():

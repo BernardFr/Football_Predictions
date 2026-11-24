@@ -68,10 +68,16 @@ th, td { padding: 4px 6px; border-bottom: 1px solid var(--rule); text-align: lef
 th { font-weight: 700; border-bottom: 2px solid var(--rule-strong); vertical-align: bottom; white-space: nowrap; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-/* Last round: the pick and its mark shaded green (right) or red (wrong). */
+/* Last matchweek: the pick and its mark shaded green (right) or red (wrong). */
 tr.hit td.pick, tr.hit td.mark { background: var(--hit); }
 tr.miss td.pick, tr.miss td.mark { background: var(--miss); }
 td.mark { text-align: center; font-weight: 700; }
+
+/* Season predictions: the season grade, then the tables; all games fold away. */
+.season-grade { font-family: var(--sans); font-size: 15px; color: var(--muted); margin: 12px 0 0; }
+.grade-value { font-size: 30px; font-weight: 700; color: var(--text); margin-right: 6px; }
+.all-games { margin-top: 28px; }
+.all-games summary { font-family: var(--sans); font-size: 15px; font-weight: 700; cursor: pointer; padding: 6px 0; border-top: 1px solid var(--rule-strong); }
 
 /* Impact players: a team picker, then the team's tables as cards. */
 .team-picker { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; margin: 8px 0 0; }

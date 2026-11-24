@@ -1,7 +1,7 @@
 <!doctype html>
 <!--
   Home page: predictions. Edit freely; website.py fills in these placeholders:
-    league_name, season, updated, nav, current_table, last_round_title, last_round_summary, last_round_table, footer
+    league_name, season, updated, nav, current_table, last_matchweek_title, last_matchweek_summary, last_matchweek_table, footer
   Write a literal dollar sign as two dollar signs.
 -->
 <html lang="en">
@@ -29,10 +29,15 @@
       Bookmaker probabilities have the margin removed.</p>
     ${current_table}
 
-    <h2>${last_round_title}</h2>
-    <p class="hint">Predictions logged before kickoff, compared with the results.</p>
-    ${last_round_summary}
-    ${last_round_table}
+    <h2>${last_matchweek_title}</h2>
+    <p class="hint">Predictions logged before kickoff, compared with the results.
+      Grade = how much better the predicted score probabilities did than the league's usual scorelines
+      (the previous seasons): 0 = no better, +100 = certain and right, below 0 = worse.
+      It weighs the result (50%), the goal difference (25%) and each side's goals (25%), and gives credit for
+      probability placed near the actual score. One game's grade is mostly luck: judge the model on the matchweek grade
+      and over the season.</p>
+    ${last_matchweek_summary}
+    ${last_matchweek_table}
   </main>
   ${footer}
 </body>

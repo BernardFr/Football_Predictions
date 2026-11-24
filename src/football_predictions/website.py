@@ -1,12 +1,12 @@
 """
-Static website: the latest predictions, the last round's results, impact players and scoring statistics.
+Static website: the latest predictions, the last matchweek's results, impact players and scoring statistics.
 
     football-predictions site [--league EPL]
 
 Site layout (``site/``, set by ``site_dir`` in src/football_predictions.toml)::
 
-    index.html    Predictions: upcoming games, then the last round, predicted vs. actual   <- templates/predictions.html
-    season.html   Season predictions (placeholder)                                         <- templates/season.html
+    index.html    Predictions: upcoming games, then the last matchweek, predicted vs. actual   <- templates/predictions.html
+    season.html   Season predictions: grades of the season, per matchweek, per team and per game <- templates/season.html
     players.html  Impact players, one team at a time                                       <- templates/players.html
     scores.html   Scoring statistics: the scoreline histogram, this season ticked           <- templates/scores.html
     style.css, players.js                                                                  <- copied as-is
@@ -31,6 +31,7 @@ import pandas as pd
 from custom_logger import custom_logger as logger
 
 from . import report
+from .grading import GRADE_COL, PART_LABELS, SKILL_PREFIX, Grader, SeasonGrades, assign_matchweeks, outcome_label
 from .histogram import ScorelineStats, chart_fragment
 from .ledger import BASE_VARIANT
 from .model import HIGHEST_PROB_SCORE_COLS
@@ -38,7 +39,6 @@ from .model import HIGHEST_PROB_SCORE_COLS
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 FOOTER_TEMPLATE = "footer.html"
 STATIC_FILES = ["style.css", "players.js"]
-LAST_ROUND_DAYS = 4             # the last round = settled games up to this many days before the latest result
 MISSING = "–"
 SCORE_SEPARATOR = " · "
 DAY_FORMAT = "%a %d %b"
@@ -48,6 +48,7 @@ HIT_CLASS, MISS_CLASS = "hit", "miss"
 HIT_MARK, MISS_MARK = "✓", "✗"
 NUM_CLASS = "num"
 CURRENT_PAGE_ATTR = ' aria-current="page"'
+GRADE_PART_LABELS = {"result": "result", "goal_diff": "goal difference", "goals": "goals"}
 
 
 @dataclass
@@ -63,6 +64,8 @@ class SiteData:
     valuable_scorers: pd.DataFrame | None = None
     defence_records: pd.DataFrame | None = None
     scorelines: ScorelineStats | None = None
+    backtest: pd.DataFrame | None = None   # this season's walk-forward predictions, graded on the Season page
+    grader: Grader | None = None   # grades the last matchweek's predictions; None = no Grade column
 
 
 class SiteTemplates:
@@ -110,28 +113,47 @@ def pct(value) -> str:
     return MISSING if pd.isna(value) else f"{value:.0%}"
 
 
+def signed(value: float) -> str:
+    """A whole number with its sign, e.g. +12, -3, +0 (never -0)."""
+    return f"{int(round(value)):+d}"
+
+
 def day(value) -> str:
     return pd.Timestamp(value).strftime(DAY_FORMAT)
-
-
-def outcome_label(home: str, away: str, code: str) -> str:
-    """The team name for a home or away win, or report.DRAW_LABEL."""
-    return {"H": home, "A": away}.get(code, report.DRAW_LABEL)
 
 
 def slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
-def last_round(ledger: pd.DataFrame | None, days: int = LAST_ROUND_DAYS) -> pd.DataFrame:
-    """The base model's settled predictions for games up to ``days`` days before the latest result."""
+def last_matchweek(ledger: pd.DataFrame | None) -> pd.DataFrame:
+    """The base model's settled predictions of the latest matchweek (see grading.assign_matchweeks)."""
     if ledger is None or ledger.empty:
         return pd.DataFrame()
     settled = ledger[(ledger.variant == BASE_VARIANT) & ledger.result.notna()]
     if settled.empty:
         return settled
-    latest = settled.date.max()
-    return settled[settled.date > latest - pd.Timedelta(days=days)].sort_values(["date", "home"]).reset_index(drop=True)
+    matchweeks = assign_matchweeks(settled)
+    return settled[matchweeks == matchweeks.max()].sort_values(["date", "home"]).reset_index(drop=True)
+
+
+def grade_display(frame: pd.DataFrame) -> pd.DataFrame:
+    """A SeasonGrades table for the web: dates as days, shares as %, grades and skills as signed whole numbers."""
+    out = frame.copy()
+    for col in out:
+        if col in ("first game", "last game", "date"):
+            out[col] = out[col].map(day)
+        elif col in ("picks right", "confidence"):
+            out[col] = out[col].map(pct)
+        elif col in (GRADE_COL, *PART_LABELS.values()):
+            out[col] = out[col].map(signed)
+        elif col == "pick right":
+            out[col] = out[col].map({True: HIT_MARK, False: MISS_MARK})
+    if {"first game", "last game"} <= set(out):
+        out.insert(out.columns.get_loc("first game"), "dates",
+                   [first if first == last else f"{first} to {last}" for first, last in zip(out["first game"], out["last game"])])
+        out = out.drop(columns=["first game", "last game"])
+    return out.rename(columns=lambda col: col[0].upper() + col[1:])
 
 
 # ----------------------------------------------------------------------------------------- pages
@@ -153,9 +175,11 @@ class PredictionsPage(Page):
     filename, nav_label, template = "index.html", "Predictions", "predictions.html"
 
     def fields(self) -> dict[str, str]:
-        played = last_round(self.data.ledger)
-        return {"current_table": self.current_table(), "last_round_title": self.last_round_title(played),
-                "last_round_summary": self.last_round_summary(played), "last_round_table": self.last_round_table(played)}
+        played = last_matchweek(self.data.ledger)
+        graded = self.data.grader.grade(played) if self.data.grader is not None and not played.empty else None
+        return {"current_table": self.current_table(), "last_matchweek_title": self.last_matchweek_title(played),
+                "last_matchweek_summary": self.last_matchweek_summary(played, graded),
+                "last_matchweek_table": self.last_matchweek_table(played, graded)}
 
     def current_table(self) -> str:
         upcoming = self.data.upcoming
@@ -178,25 +202,33 @@ class PredictionsPage(Page):
         return html_table(table, num)
 
     @staticmethod
-    def last_round_title(played: pd.DataFrame) -> str:
+    def last_matchweek_title(played: pd.DataFrame) -> str:
         if played.empty:
-            return "Last round"
+            return "Last matchweek"
         first, last = played.date.min(), played.date.max()
-        return f"Last round: {day(first)}" + ("" if first == last else f" to {day(last)}")
+        return f"Last matchweek: {day(first)}" + ("" if first == last else f" to {day(last)}")
 
     @staticmethod
     def _scores(played: pd.DataFrame) -> pd.Series:
         return played.hg.astype(int).astype(str) + "-" + played.ag.astype(int).astype(str)
 
-    def last_round_summary(self, played: pd.DataFrame) -> str:
+    def last_matchweek_summary(self, played: pd.DataFrame, graded: pd.DataFrame | None = None) -> str:
         if played.empty:
             return note("No scored predictions yet.")
         hits = int((played.pick == played.result).sum())
         exact = int((played.likely_score == self._scores(played)).sum())
         return (f'<p class="summary-line"><strong>{hits} of {len(played)}</strong> picks right ({hits / len(played):.0%}). '
-                f"<strong>{exact}</strong> exact score{'' if exact == 1 else 's'} (most likely score).</p>")
+                f"<strong>{exact}</strong> exact score{'' if exact == 1 else 's'} (most likely score).{self.matchweek_grade(graded)}</p>")
 
-    def last_round_table(self, played: pd.DataFrame) -> str:
+    @staticmethod
+    def matchweek_grade(graded: pd.DataFrame | None) -> str:
+        if graded is None:
+            return ""
+        pooled = Grader.pooled(graded)
+        parts = ", ".join(f"{label} {signed(100 * pooled[SKILL_PREFIX + part])}" for part, label in GRADE_PART_LABELS.items())
+        return f" Matchweek grade <strong>{signed(pooled[GRADE_COL])}</strong> ({parts})."
+
+    def last_matchweek_table(self, played: pd.DataFrame, graded: pd.DataFrame | None = None) -> str:
         if played.empty:
             return ""
         hit = (played.pick == played.result).to_numpy()
@@ -208,15 +240,41 @@ class PredictionsPage(Page):
             "Result": [outcome_label(row.home, row.away, row.result) for row in played.itertuples()],
             "Pick right?": [HIT_MARK if is_hit else MISS_MARK for is_hit in hit],
         })
-        classes = {"Confidence": NUM_CLASS, "Pick": "pick", "Pick right?": "mark"}
+        classes = {"Confidence": NUM_CLASS, "Pick": "pick", "Pick right?": "mark", "Grade": NUM_CLASS}
+        if graded is not None:
+            table["Grade"] = graded[GRADE_COL].map(signed).to_numpy()
         return html_table(table, classes, [HIT_CLASS if is_hit else MISS_CLASS for is_hit in hit])
 
 
 class SeasonPage(Page):
+    """How good this season's predictions were: the season grade, then per team, per matchweek and per game."""
     filename, nav_label, template = "season.html", "Season predictions", "season.html"
+    GRADE_CLASSES = dict.fromkeys(["Games", "Picks right", "Grade", "Confidence",
+                                   *(label[0].upper() + label[1:] for label in PART_LABELS.values())], NUM_CLASS)
 
     def fields(self) -> dict[str, str]:
-        return {}
+        backtest, grader = self.data.backtest, self.data.grader
+        if backtest is None or backtest.empty or grader is None:
+            empty = note("No graded games yet: run `football-predictions update`.")
+            return {"season_summary": empty, "team_table": "", "matchweek_table": "", "game_count": "0", "game_table": ""}
+        grades = SeasonGrades(backtest, grader)
+        games = grades.by_game().iloc[::-1]               # latest first
+        hits = games["pick right"].to_numpy()
+        return {"season_summary": self.season_summary(grades.season().iloc[0]),
+                "team_table": html_table(grade_display(grades.by_team()), self.GRADE_CLASSES | {"Rank": NUM_CLASS}),
+                "matchweek_table": html_table(grade_display(grades.by_matchweek().iloc[::-1]), self.GRADE_CLASSES | {"Matchweek": NUM_CLASS}),
+                "game_count": str(len(games)),
+                "game_table": html_table(grade_display(games), self.GRADE_CLASSES | {"Matchweek": NUM_CLASS, "Pick": "pick",
+                                                                                     "Pick right": "mark"},
+                                         [HIT_CLASS if is_hit else MISS_CLASS for is_hit in hits])}
+
+    @staticmethod
+    def season_summary(season: pd.Series) -> str:
+        parts = ", ".join(f"{label} {signed(season[label + ' skill'])}"
+                          for label in ("result", "goal diff", "goals"))
+        return (f'<p class="season-grade"><span class="grade-value">{signed(season[GRADE_COL])}</span> '
+                f"season grade over {season.games} games in {season.matchweeks} matchweeks, {day(season['first game'])} to "
+                f"{day(season['last game'])} ({parts}). Picks right: {pct(season['picks right'])}.</p>")
 
 
 class PlayersPage(Page):

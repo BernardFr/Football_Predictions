@@ -1,4 +1,4 @@
-"""Excel report: upcoming predictions, backtest, calibration, player impact, live track record, team ratings."""
+"""Excel report: upcoming predictions, backtest, grades, predictability, calibration, player impact, live track record, team ratings."""
 
 from pathlib import Path
 from typing import Any
@@ -8,11 +8,12 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from . import metrics
+from .grading import Grader, SeasonGrades
 from .defence import CLEAN_SHEET_MIN_MINUTES, MIN_OFF_MINUTES
 from .lineups import FEATURE_COLS
 from .model import HIGHEST_PROB_SCORE_COLS
 
-PCT = {"p_home", "p_draw", "p_away", "confidence", "bk_home", "bk_draw", "bk_away", "accuracy",
+PCT = {"picks right", "p_home", "p_draw", "p_away", "confidence", "bk_home", "bk_draw", "bk_away", "accuracy",
        "hit_rate", "mean_confidence", "mean_forecast", "observed_freq", "gd_80_coverage",
        "p_likely_score", "p_base_h", "p_base_d", "p_base_a"}
 HEADER_COLOR = "1F3864"
@@ -41,6 +42,10 @@ POSITION_ORDER = {"G": 0, "D": 1, "M": 2, "F": 3}
 SCORERS_TOP_N = 3
 TOP_SCORERS_N = 5
 GOALKEEPER_ROWS = ["Keeper", "Matches", "Goals conceded", "Conceded per 90 (rank)", "Clean sheets (rank)"]
+GRADE_TITLE = ("prediction grade vs. the previous seasons' scorelines (0 = no better, 100 = certain and right; "
+               "result 50%, goal difference 25%, goals 25%)")
+PREDICTABILITY_TITLE = ("Teams from most to least predictable: the grade of the predictions for the games they played "
+                        "(0 = no better than the previous seasons' scorelines)")
 SCORER_CLASS_LABELS = {"first_goal": "First goal", "equalizer": "Equalizer", "go_ahead": "Go-ahead", "combined": "Combined"}
 # (title, column it ranks, show the largest values first?, columns shown next to the team)
 STATS_RANKINGS = [
@@ -205,7 +210,7 @@ def _on_off_text(row) -> str:
 
 def write(path: Path, league_name: str, upcoming, backtest, season, ledger, ratings, tuning, high, medium,
           lineup_comparison=None, lineup_coefs=None, lineup_upcoming=None, player_impact=None,
-          valuable_scorers=None, defence_records=None):
+          valuable_scorers=None, defence_records=None, grader: Grader | None = None):
     path.parent.mkdir(parents=True, exist_ok=True)
     with pd.ExcelWriter(path, engine="openpyxl") as xw:
         if upcoming is not None and not upcoming.empty:
@@ -214,11 +219,19 @@ def write(path: Path, league_name: str, upcoming, backtest, season, ledger, rati
         else:
             _sheet(xw, "Upcoming", [(None, pd.DataFrame({"note": ["No upcoming fixtures in the window"]}))])
         if backtest is not None and not backtest.empty:
+            grades = SeasonGrades(backtest, grader) if grader is not None else None
             _sheet(xw, "Backtest", [
                 (f"{league_name} {season}: walk-forward backtest, {len(backtest)} matches", metrics.summary(backtest)),
                 (f"Hit rate by confidence band (High >= {high:.0%}, Medium >= {medium:.0%})",
                  metrics.confidence_bands(backtest, high, medium)),
+                *([(GRADE_TITLE, grades.season())] if grades else []),
             ])
+            if grades:
+                _sheet(xw, "Grades", [(f"{league_name} {season}: {GRADE_TITLE}", grades.season()),
+                                      ("Per matchweek (matchweeks inferred from the dates; each team plays once per matchweek)",
+                                       grades.by_matchweek()),
+                                      ("Per game", grades.by_game())])
+                _sheet(xw, "Predictability", [(PREDICTABILITY_TITLE, grades.by_team())])
             _sheet(xw, "Calibration", [("Pooled reliability: does a 30% forecast happen 30% of the time?",
                                         metrics.calibration(backtest))])
             det = display_predictions(backtest, high, medium)

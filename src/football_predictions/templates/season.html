@@ -1,7 +1,7 @@
 <!doctype html>
 <!--
-  Season predictions (placeholder). Edit freely; website.py fills in these placeholders:
-    league_name, season, updated, nav, footer
+  Season predictions: how good this season's predictions were. Edit freely; website.py fills in these placeholders:
+    league_name, season, updated, nav, season_summary, team_table, matchweek_table, game_count, game_table, footer
   Write a literal dollar sign as two dollar signs.
 -->
 <html lang="en">
@@ -20,7 +20,27 @@
     <p class="kicker">${league_name} · ${season}</p>
     <h1>Season predictions</h1>
     <p class="updated">Updated ${updated}</p>
-    <p class="placeholder">Coming soon.</p>
+    <p>How good this season's predictions were. Each game is predicted before kickoff with only the results
+      known at that time (a walk-forward backtest), then graded on its result.</p>
+    <p class="hint">Grade = how much better the predicted score probabilities did than the league's usual scorelines
+      (the previous seasons): 0 = no better, +100 = certain and right, below 0 = worse. It weighs the result (50%),
+      the goal difference (25%) and each side's goals (25%). A group of games (a team, a matchweek, the season) adds up
+      the scores of its games first, so one odd game does not dominate it.</p>
+    ${season_summary}
+
+    <h2>Most to least predictable teams</h2>
+    <p class="hint">The grade of the predictions for the games each team played. A predictable team plays to its
+      rating; an unpredictable one beats it or falls short of it often.</p>
+    ${team_table}
+
+    <h2>Per matchweek</h2>
+    <p class="hint">Latest matchweek first. Matchweeks come from the dates: each team plays once per matchweek.</p>
+    ${matchweek_table}
+
+    <details class="all-games">
+      <summary>All ${game_count} games, latest first</summary>
+      ${game_table}
+    </details>
   </main>
   ${footer}
 </body>

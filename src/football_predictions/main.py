@@ -29,7 +29,7 @@ from custom_logger import custom_logger as logger
 from custom_logger import setup_logger
 
 from . import backtest as bt
-from . import cups, defence, histogram, ledger, lineups, report, scorers, teammap, website
+from . import cups, defence, grading, histogram, ledger, lineups, report, scorers, teammap, website
 from .config import DEFAULT_CONFIG_PATH, Config, read_toml_config, shift_season
 from .csvio import read_csv, write_csv
 from .espn import DEFAULT_DELAY_SECONDS, DEFAULT_UA, STATE_POST, STATE_PRE, EspnClient, has_lineups, parse_lineups
@@ -273,8 +273,18 @@ class Run:
                      lineup_coefs=json.loads(coefs.read_text()) if coefs.exists() else None,
                      lineup_upcoming=read(LINEUP_UPCOMING_FILE),
                      player_impact=read(PLAYER_IMPACT_FILE, ()), valuable_scorers=read(SCORERS_FILE, ()),
-                     defence_records=read(DEFENCE_FILE, ()))
+                     defence_records=read(DEFENCE_FILE, ()), grader=self.grader())
         logger.info(f"report -> {path}")
+
+    def grader(self) -> grading.Grader | None:
+        """Grades predictions against the top division's scorelines of the previous seasons (from the cache)."""
+        seasons = [shift_season(self.season, -k) for k in range(self.cfg.history_seasons, 0, -1)]
+        history = load_matches(self.source, seasons, [self.top])
+        history = history[history["div"] == self.top]
+        if history.empty:
+            logger.warning(f"no {self.top} results for {seasons}: predictions are not graded")
+            return None
+        return grading.Grader.from_matches(history)
 
     def site(self):
         """Rebuild the website from the saved files and the cached results (nothing is downloaded)."""
@@ -284,6 +294,7 @@ class Run:
             upcoming=self._read_state(UPCOMING_FILE), ledger=ledger.load(self.state / LEDGER_FILE),
             player_impact=self._read_state(PLAYER_IMPACT_FILE, ()), valuable_scorers=self._read_state(SCORERS_FILE, ()),
             defence_records=self._read_state(DEFENCE_FILE, ()),
+            backtest=self._read_state(BACKTEST_FILE.format(season=self.season)), grader=self.grader(),
             scorelines=histogram.ScorelineStats.load(self.cfg, self.league, self.source, refresh=False))
         website.Website(data).build(self.cfg.site_dir)
 

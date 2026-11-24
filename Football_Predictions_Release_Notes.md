@@ -2,14 +2,14 @@
 
 
 
-* **Web page: https://bernardfr.github.io/Football_Predictions/** 
+* # **Web page: https://bernardfr.github.io/Football_Predictions/** 
 * See **`Premier League Game Prediction Model.md`**
 
 # Release Notes
 
 | Date       | Changes                                                      |
 | ---------- | ------------------------------------------------------------ |
-| 11/24/2026 | • Added the website (`football-predictions site`): Predictions, Season predictions (empty for now), Impact players and Scoring statistics tabs. GitHub Pages publishes `site/` |
+| 11/24/2026 | • Added the prediction grade (`grading.py`): a Grade column and matchweek grade in the website's Last matchweek, the season grade on the Backtest sheet, new Grades and Predictability sheets, and the website's Season predictions tab<br />• Added the website (`football-predictions site`): Predictions, Season predictions (empty for now), Impact players and Scoring statistics tabs. GitHub Pages publishes `site/`<br />• Improved scoring of predictions |
 | 11/23/2026 | • Added `Player Impact` tab in the report. See notes in `Premier League Game Prediction Model.md`<br />• Added fix to remove players who have not played for a given team this season (but player in earlier seasons)<br />• Added fix to properly account for the Goal Keeper impact |
 | 11/19/2026 | • Added `./Docs/architecture.html` which documents architecture<br />• Added more Stats |
 | 11/16/2026 | • v1.0                                                       |
