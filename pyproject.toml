@@ -30,5 +30,8 @@ py-modules = ["custom_logger"]   # top-level module in src/, imported as `custom
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+football_predictions = ["templates/*"]   # the website's page templates (website.py)
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

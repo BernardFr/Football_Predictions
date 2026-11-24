@@ -12,6 +12,7 @@ DEFAULT_SOURCE = "football_data"
 DEFAULT_DATA_DIR = "../data"
 DEFAULT_STATE_DIR = "../state"
 DEFAULT_REPORTS_DIR = "../reports"
+DEFAULT_SITE_DIR = "../site"
 DEFAULT_HISTORY_SEASONS = 2
 DEFAULT_UPCOMING_DAYS = 10
 DEFAULT_CONFIDENCE = {"high": 0.6, "medium": 0.45}
@@ -56,6 +57,7 @@ class Config:
     data_dir: Path
     state_dir: Path
     reports_dir: Path
+    site_dir: Path
     history_seasons: int
     upcoming_days: int
     model: dict
@@ -93,6 +95,7 @@ def read_toml_config(path: str | Path = DEFAULT_CONFIG_PATH,
         data_dir=(root / general.get("data_dir", DEFAULT_DATA_DIR)).resolve(),
         state_dir=(root / general.get("state_dir", DEFAULT_STATE_DIR)).resolve(),
         reports_dir=(root / general.get("reports_dir", DEFAULT_REPORTS_DIR)).resolve(),
+        site_dir=(root / general.get("site_dir", DEFAULT_SITE_DIR)).resolve(),
         history_seasons=int(general.get("history_seasons", DEFAULT_HISTORY_SEASONS)),
         upcoming_days=int(general.get("upcoming_days", DEFAULT_UPCOMING_DAYS)),
         model=raw.get("model", {}),

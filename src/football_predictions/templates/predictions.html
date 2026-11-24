@@ -1,0 +1,39 @@
+<!doctype html>
+<!--
+  Home page: predictions. Edit freely; website.py fills in these placeholders:
+    league_name, season, updated, nav, current_table, last_round_title, last_round_summary, last_round_table, footer
+  Write a literal dollar sign as two dollar signs.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&display=swap">
+  <link rel="stylesheet" href="style.css">
+  <title>Predictions | ${league_name}</title>
+</head>
+<body>
+  <nav>${nav}</nav>
+  <main>
+    <p class="kicker">${league_name} · ${season}</p>
+    <h1>Predictions</h1>
+    <p class="updated">Updated ${updated}</p>
+    <p>Win, draw and loss probabilities from a time-weighted Dixon-Coles model. Recent matches count most,
+      and each team has an attack and a defence rating.</p>
+
+    <h2>Next games</h2>
+    <p class="hint">Pick = the most likely outcome. Band: High = 60% or more, Medium = 45% or more, Low = under 45%.
+      GD = goal difference, home minus away. The 80% range holds the goal difference in 4 games out of 5.
+      Bookmaker probabilities have the margin removed.</p>
+    ${current_table}
+
+    <h2>${last_round_title}</h2>
+    <p class="hint">Predictions logged before kickoff, compared with the results.</p>
+    ${last_round_summary}
+    ${last_round_table}
+  </main>
+  ${footer}
+</body>
+</html>

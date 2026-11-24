@@ -13,6 +13,7 @@ Commands
   lineups-backtest   download ESPN lineups, test whether adjusting for the starting XI improves forecasts
   lineups            lineup-adjusted predictions for games in the next 36 hours whose XIs are announced
                      (run about an hour before kickoff; logged to the ledger as variant "lineup")
+  site       rebuild the website (site/) from saved files and cached results; push site/ to publish it
 """
 
 import argparse
@@ -28,7 +29,7 @@ from custom_logger import custom_logger as logger
 from custom_logger import setup_logger
 
 from . import backtest as bt
-from . import cups, defence, ledger, lineups, report, scorers, teammap
+from . import cups, defence, histogram, ledger, lineups, report, scorers, teammap, website
 from .config import DEFAULT_CONFIG_PATH, Config, read_toml_config, shift_season
 from .csvio import read_csv, write_csv
 from .espn import DEFAULT_DELAY_SECONDS, DEFAULT_UA, STATE_POST, STATE_PRE, EspnClient, has_lineups, parse_lineups
@@ -37,7 +38,7 @@ from .report import DRAW_LABEL
 from .sources import load_matches, make_source
 
 PROG_NAME = "football-predictions"
-COMMANDS = ["download", "tune", "backtest", "predict", "update", "report", "lineups-backtest", "lineups"]
+COMMANDS = ["download", "tune", "backtest", "predict", "update", "report", "lineups-backtest", "lineups", "site"]
 DEFAULT_LEAGUE = "EPL"
 REPLAY_HOUR_UTC = 10   # with --today, pretend the run happens at 10:00 UTC that day
 
@@ -253,12 +254,15 @@ class Run:
         logger.info(f"scored {n_settled} logged prediction(s) against new results")
         return n_settled
 
+    def _read_state(self, name: str, dates=("date",)) -> pd.DataFrame | None:
+        """A CSV file in state/<league>/, with its `dates` columns parsed; None when it is missing or empty."""
+        csv_path = self.state / name
+        if not csv_path.exists() or csv_path.stat().st_size < MIN_CSV_BYTES:
+            return None
+        return read_csv(csv_path, parse_dates=[date_col for date_col in dates if date_col in pd.read_csv(csv_path, nrows=0).columns])
+
     def report(self):
-        def read(name, dates=("date",)):
-            csv_path = self.state / name
-            if not csv_path.exists() or csv_path.stat().st_size < MIN_CSV_BYTES:
-                return None
-            return read_csv(csv_path, parse_dates=[date_col for date_col in dates if date_col in pd.read_csv(csv_path, nrows=0).columns])
+        read = self._read_state
         path = self.cfg.reports_dir / REPORT_FILE.format(league=self.league.key)
         conf = self.cfg.confidence
         coefs = self.state / LINEUP_COEFS_FILE
@@ -271,6 +275,17 @@ class Run:
                      player_impact=read(PLAYER_IMPACT_FILE, ()), valuable_scorers=read(SCORERS_FILE, ()),
                      defence_records=read(DEFENCE_FILE, ()))
         logger.info(f"report -> {path}")
+
+    def site(self):
+        """Rebuild the website from the saved files and the cached results (nothing is downloaded)."""
+        conf = self.cfg.confidence
+        data = website.SiteData(
+            self.league.name, self.season, conf["high"], conf["medium"],
+            upcoming=self._read_state(UPCOMING_FILE), ledger=ledger.load(self.state / LEDGER_FILE),
+            player_impact=self._read_state(PLAYER_IMPACT_FILE, ()), valuable_scorers=self._read_state(SCORERS_FILE, ()),
+            defence_records=self._read_state(DEFENCE_FILE, ()),
+            scorelines=histogram.ScorelineStats.load(self.cfg, self.league, self.source, refresh=False))
+        website.Website(data).build(self.cfg.site_dir)
 
     def update(self):
         self.settle(refresh=True)
@@ -416,6 +431,7 @@ def main(argv=None):
             case "report": run.report()
             case "lineups-backtest": run.lineups_backtest()
             case "lineups": run.lineups_predict()
+            case "site": run.site()
     return 0
 
 

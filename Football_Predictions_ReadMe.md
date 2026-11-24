@@ -177,10 +177,33 @@ Seasons are compared as a share of matches by default, since the current season 
 through. Options: `--seasons 5`, `--top 25` (keep only the 25 most common scores and pool the rest
 as "Other"), `--league BUN`, `--no-refresh`.
 
+## Website
+
+```bash
+football-predictions site           # after `update` (and `lineups-backtest` for the player tables)
+git add site && git commit -m "Update site" && git push
+```
+
+`site` writes the website to `site/`. It reads the files in `state/EPL/` and the cached results, and
+downloads nothing. A push that changes `site/` starts the GitHub Pages workflow
+(`.github/workflows/pages.yml`), which publishes the site at
+https://bernardfr.github.io/Football_Predictions/. The site has four tabs:
+
+| Tab | Content |
+|---|---|
+| Predictions | The upcoming games (from `upcoming.csv`), then the last round: the predictions logged before kickoff vs. the results. Picks are shaded green (right) or red (wrong). |
+| Season predictions | Empty for now. |
+| Impact players | The tables of the report's Impact Players sheet, one team at a time. A link such as `players.html#chelsea` opens one team. |
+| Scoring statistics | The scoreline histogram, with only the current season ticked. |
+
+The last round is the base model's scored games from the latest result back 4 days (`LAST_ROUND_DAYS` in
+`website.py`). The pages come from the templates in `src/football_predictions/templates/`; edit their text
+there.
+
 ## Commands
 
 ```
-football-predictions download|tune|backtest|predict|update|report|lineups-backtest|lineups
+football-predictions download|tune|backtest|predict|update|report|lineups-backtest|lineups|site
     [--league EPL | --all] [--season 2025-26] [--source openfootball] [--today YYYY-MM-DD]
 ```
 

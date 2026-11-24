@@ -1,10 +1,10 @@
-# Publishes the interactive scoreline chart to GitHub Pages.
-# Runs whenever a new version of the chart is pushed, or on demand ("Run workflow" button).
+# Publishes the website (site/, built by `football-predictions site`) to GitHub Pages.
+# Runs whenever a new version of the site is pushed, or on demand ("Run workflow" button).
 name: Publish site
 on:
   push:
     branches: [main]
-    paths: [reports/EPL_score_histogram.html]
+    paths: ["site/**"]
   workflow_dispatch:
 permissions: {contents: read, pages: write, id-token: write}
 concurrency: {group: pages, cancel-in-progress: true}
@@ -16,7 +16,6 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
-      - run: mkdir site && cp reports/EPL_score_histogram.html site/index.html
       - uses: actions/upload-pages-artifact@v5
         with: {path: site}
       - id: deploy

@@ -1,0 +1,140 @@
+<!doctype html>
+<!--
+  Scoring statistics: the scoreline histogram (histogram.chart_fragment). Edit freely; website.py fills in these placeholders:
+    league_name, season, updated, nav, chart_title, chart, footer
+  Write a literal dollar sign as two dollar signs.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&display=swap">
+  <link rel="stylesheet" href="style.css">
+  <title>Scoring statistics | English Premier League</title>
+</head>
+<body>
+  <nav><a href="index.html">Predictions</a><a href="season.html">Season predictions</a><a href="players.html">Impact players</a><a href="scores.html" aria-current="page">Scoring statistics</a></nav>
+  <main>
+    <p class="kicker">English Premier League · 2026-27</p>
+    <h1>Scoring statistics</h1>
+    <p class="updated">Updated 24 Nov 2026, 11:26 PST</p>
+    <h2>English Premier League, 2024-25 to 2026-27: final scores</h2>
+    <p class="hint">Left to right: heaviest home defeat to biggest home win. The shaded band is draws.
+      This season is shown first. Tick other seasons, or all seasons combined, to compare them.
+      Seasons compare best as a share of matches, because this season is not complete.</p>
+    <div class="score-chart">
+<style>
+  .score-chart .controls { display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; margin-bottom:12px; }
+  .score-chart .controls label { display:inline-flex; align-items:center; gap:6px; cursor:pointer; user-select:none; }
+  .score-chart .series-swatch { width:12px; height:12px; border-radius:3px; display:inline-block; }
+  .score-chart .sep { width:1px; height:20px; background:var(--line); }
+  .score-chart button { font:inherit; padding:3px 10px; border:1px solid var(--line); border-radius:6px;
+           background:transparent; color:var(--fg); cursor:pointer; }
+  .score-chart button[aria-pressed="true"] { background:var(--fg); color:var(--bg); }
+  .score-chart .wrap { position:relative; height:520px; overflow-x:auto; }
+  .score-chart .inner { position:relative; height:100%; min-width:814px; }
+  .score-chart .chart-footer { margin-top:10px; color:var(--muted); font-size:12px; }
+</style>
+<div class="controls">
+  <span id="series"></span>
+  <span class="sep"></span>
+  <button id="all">All</button><button id="none">None</button>
+  <span class="sep"></span>
+  <span>Show:</span>
+  <button id="m-share" aria-pressed="true">% of matches</button><button id="m-count" aria-pressed="false">Match count</button>
+</div>
+<div class="wrap"><div class="inner"><canvas id="c"></canvas></div></div>
+<p class="chart-footer">Source: football_data, results up to 22 Nov 2026. 2024-25: 380 matches, 2025-26: 380 matches, 2026-27: 109 matches.</p>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const DATA = {"labels": ["0-6", "0-5", "2-6", "1-5", "0-4", "3-6", "2-5", "1-4", "0-3", "2-4", "1-3", "0-2", "4-5", "3-4", "2-3", "1-2", "0-1", "0-0", "1-1", "2-2", "3-3", "4-4", "1-0", "2-1", "3-2", "4-3", "2-0", "3-1", "4-2", "5-3", "3-0", "4-1", "5-2", "4-0", "5-1", "5-0", "7-0"], "results": ["Home defeat", "Home defeat", "Home defeat", "Home defeat", "Home defeat", "Home defeat", "Home defeat", "Home defeat", "Home defeat", "Home defeat", "Home defeat", "Home defeat", "Home defeat", "Home defeat", "Home defeat", "Home defeat", "Home defeat", "Draw", "Draw", "Draw", "Draw", "Draw", "Home win", "Home win", "Home win", "Home win", "Home win", "Home win", "Home win", "Home win", "Home win", "Home win", "Home win", "Home win", "Home win", "Home win", "Home win"], "series": [{"label": "2024-25", "color": "#7FA3CF", "n": 380, "share": [0.002632, 0.007895, 0.002632, 0.005263, 0.013158, 0.002632, 0.002632, 0.010526, 0.031579, 0.005263, 0.028947, 0.073684, 0.0, 0.002632, 0.013158, 0.076316, 0.068421, 0.042105, 0.118421, 0.081579, 0.002632, 0.0, 0.076316, 0.086842, 0.028947, 0.007895, 0.055263, 0.044737, 0.015789, 0.002632, 0.028947, 0.026316, 0.002632, 0.018421, 0.005263, 0.005263, 0.002632], "count": [1, 3, 1, 2, 5, 1, 1, 4, 12, 2, 11, 28, 0, 1, 5, 29, 26, 16, 45, 31, 1, 0, 29, 33, 11, 3, 21, 17, 6, 1, 11, 10, 1, 7, 2, 2, 1], "visible": false}, {"label": "2025-26", "color": "#4A78B5", "n": 380, "share": [0.0, 0.002632, 0.0, 0.002632, 0.005263, 0.0, 0.0, 0.010526, 0.026316, 0.002632, 0.023684, 0.039474, 0.002632, 0.005263, 0.026316, 0.071053, 0.081579, 0.071053, 0.123684, 0.068421, 0.007895, 0.002632, 0.057895, 0.097368, 0.028947, 0.005263, 0.076316, 0.052632, 0.007895, 0.0, 0.071053, 0.015789, 0.002632, 0.005263, 0.002632, 0.002632, 0.0], "count": [0, 1, 0, 1, 2, 0, 0, 4, 10, 1, 9, 15, 1, 2, 10, 27, 31, 27, 47, 26, 3, 1, 22, 37, 11, 2, 29, 20, 3, 0, 27, 6, 1, 2, 1, 1, 0], "visible": false}, {"label": "2026-27", "color": "#1F4E8C", "n": 109, "share": [0.0, 0.009174, 0.0, 0.0, 0.0, 0.0, 0.0, 0.018349, 0.018349, 0.0, 0.009174, 0.06422, 0.0, 0.0, 0.036697, 0.027523, 0.110092, 0.06422, 0.110092, 0.091743, 0.0, 0.009174, 0.06422, 0.06422, 0.018349, 0.009174, 0.119266, 0.045872, 0.0, 0.009174, 0.036697, 0.018349, 0.009174, 0.018349, 0.009174, 0.009174, 0.0], "count": [0, 1, 0, 0, 0, 0, 0, 2, 2, 0, 1, 7, 0, 0, 4, 3, 12, 7, 12, 10, 0, 1, 7, 7, 2, 1, 13, 5, 0, 1, 4, 2, 1, 2, 1, 1, 0], "visible": true}, {"label": "All seasons combined", "color": "#E07B39", "n": 869, "share": [0.001151, 0.005754, 0.001151, 0.003452, 0.008055, 0.001151, 0.001151, 0.011507, 0.027618, 0.003452, 0.024166, 0.057537, 0.001151, 0.003452, 0.021864, 0.067894, 0.079402, 0.057537, 0.119678, 0.0771, 0.004603, 0.002301, 0.066743, 0.088608, 0.027618, 0.006904, 0.072497, 0.048331, 0.010357, 0.002301, 0.048331, 0.020713, 0.003452, 0.012658, 0.004603, 0.004603, 0.001151], "count": [1, 5, 1, 3, 7, 1, 1, 10, 24, 3, 21, 50, 1, 3, 19, 59, 69, 50, 104, 67, 4, 2, 58, 77, 24, 6, 63, 42, 9, 2, 42, 18, 3, 11, 4, 4, 1], "visible": false}]};
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let metric = "share";
+
+const drawBand = {
+  id: "drawBand",
+  beforeDatasetsDraw(chart) {
+    const idx = DATA.results.map((r, i) => r === "Draw" ? i : -1).filter(i => i >= 0);
+    if (!idx.length) return;
+    const x = chart.scales.x, {top, bottom} = chart.chartArea, ctx = chart.ctx;
+    const step = x.getPixelForValue(1) - x.getPixelForValue(0);
+    const left = x.getPixelForValue(idx[0]) - step / 2, right = x.getPixelForValue(idx[idx.length - 1]) + step / 2;
+    ctx.save(); ctx.fillStyle = css("--band"); ctx.fillRect(left, top, right - left, bottom - top);
+    ctx.fillStyle = css("--muted"); ctx.font = "12px sans-serif"; ctx.textBaseline = "top";
+    ctx.textAlign = "right"; ctx.fillText("◀ home defeats", left - 6, top + 2);
+    ctx.textAlign = "center"; ctx.fillText("draws", (left + right) / 2, top + 2);
+    ctx.textAlign = "left"; ctx.fillText("home wins ▶", right + 6, top + 2);
+    ctx.restore();
+  }
+};
+
+const datasets = DATA.series.map(s => ({
+  label: s.label, data: s.share.map(v => v * 100), backgroundColor: s.color, borderWidth: 0,
+  hidden: !s.visible, categoryPercentage: 0.85, barPercentage: 0.95,
+}));
+
+const chart = new Chart(document.getElementById("c"), {
+  type: "bar",
+  data: { labels: DATA.labels, datasets },
+  plugins: [drawBand],
+  options: {
+    responsive: true, maintainAspectRatio: false, animation: { duration: 250 },
+    layout: { padding: { top: 22 } },
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: c => {
+        const s = DATA.series[c.datasetIndex], i = c.dataIndex;
+        return `${s.label}: ${(s.share[i] * 100).toFixed(1)}% (${s.count[i]} of ${s.n} matches)`;
+      }, title: items => `${items[0].label}  ·  ${DATA.results[items[0].dataIndex] || "pooled rare scores"}` } }
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: css("--fg"), autoSkip: false, maxRotation: 90, minRotation: 0 } },
+      y: { beginAtZero: true, grace: "6%", grid: { color: css("--line") }, ticks: { color: css("--muted"), callback: v => metric === "share" ? v + "%" : v },
+           title: { display: true, text: "Share of matches", color: css("--muted") } }
+    }
+  }
+});
+
+const box = document.getElementById("series");
+DATA.series.forEach((s, i) => {
+  const l = document.createElement("label");
+  l.innerHTML = `<input type="checkbox" ${s.visible ? "checked" : ""}><span class="series-swatch" style="background:${s.color}"></span>${s.label} <span style="color:var(--muted)">(${s.n})</span>`;
+  l.querySelector("input").addEventListener("change", e => { chart.setDatasetVisibility(i, e.target.checked); chart.update(); });
+  box.appendChild(l); box.appendChild(document.createTextNode(" "));
+});
+const setAll = on => { box.querySelectorAll("input").forEach((el, i) => { el.checked = on; chart.setDatasetVisibility(i, on); }); chart.update(); };
+document.getElementById("all").onclick = () => setAll(true);
+document.getElementById("none").onclick = () => setAll(false);
+const setMetric = m => {
+  metric = m;
+  document.getElementById("m-share").setAttribute("aria-pressed", m === "share");
+  document.getElementById("m-count").setAttribute("aria-pressed", m === "count");
+  chart.data.datasets.forEach((d, i) => d.data = m === "share" ? DATA.series[i].share.map(v => v * 100) : DATA.series[i].count);
+  chart.options.scales.y.title.text = m === "share" ? "Share of matches" : "Number of matches";
+  chart.update();
+};
+document.getElementById("m-share").onclick = () => setMetric("share");
+document.getElementById("m-count").onclick = () => setMetric("count");
+</script>
+</div>
+
+  </main>
+  <!-- Shared footer, inserted into every page. Placeholder: year -->
+<footer>
+  <p>
+    A personal, non-commercial project. &copy; 2026 Bernard Fraenkel.
+    Licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="license">CC BY-NC-SA 4.0</a>:
+    you may share and adapt this site's content with attribution, for non-commercial purposes only,
+    and adaptations must use the same license. The license covers this site's own content, not the underlying data.
+  </p>
+  <p>
+    Results and bookmaker odds: <a href="https://www.football-data.co.uk/">football-data.co.uk</a>.
+    Line-ups, goals and schedules: ESPN. Source data remain the property of their respective owners.
+  </p>
+  <p>For information only. This is not betting advice.</p>
+</footer>
+
+</body>
+</html>

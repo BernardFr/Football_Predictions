@@ -249,8 +249,8 @@ def write(path: Path, league_name: str, upcoming, backtest, season, ledger, rati
         if defence_records is not None and not defence_records.empty:
             impact_tables += defence_frames(defence_records, season)
         if impact_tables:
-            _sheet(xw, "Player impact", impact_tables)
-            xw.sheets["Player impact"].freeze_panes = FREEZE_FIRST_COLUMN
+            _sheet(xw, "Impact Players", impact_tables)
+            xw.sheets["Impact Players"].freeze_panes = FREEZE_FIRST_COLUMN
         if ledger is not None and not ledger.empty:
             settled = ledger[ledger.result.notna()].copy()
             frames = []

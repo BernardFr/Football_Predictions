@@ -12,6 +12,7 @@ source = "football_data"   # "football_data" (results + bookmaker odds) or "open
 data_dir = "../data"       # folders are relative to this file, so ../ puts them in the project folder
 state_dir = "../state"
 reports_dir = "../reports"
+site_dir = "../site"         # the website (`football-predictions site`); GitHub Pages publishes it
 history_seasons = 2        # full past seasons fitted, in addition to the current season
 upcoming_days = 10         # how far ahead to look for upcoming fixtures
 

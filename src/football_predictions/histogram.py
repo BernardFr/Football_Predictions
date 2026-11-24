@@ -17,6 +17,7 @@ Seasons are compared as a share of matches played, since the current season is o
 import argparse
 import json
 import sys
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -26,7 +27,7 @@ import pandas as pd
 from custom_logger import custom_logger as logger
 from custom_logger import setup_logger
 
-from .config import DEFAULT_CONFIG_PATH, read_toml_config, shift_season
+from .config import DEFAULT_CONFIG_PATH, Config, League, read_toml_config, shift_season
 from .report import DATE_FORMAT, FLOAT_FORMAT, HEADER_COLOR, HEADER_FONT_COLOR, PCT_FORMAT, TITLE_FONT_SIZE
 from .sources import load_matches, make_source
 
@@ -256,50 +257,32 @@ def _shade_draws(ax, table):
 
 
 # ---------------------------------------------------------------------------------------- HTML
-HTML = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>__TITLE__ scorelines</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+# The chart alone, without a page around it: the standalone HTML file and the website's Scoring
+# statistics page both embed it. The host page defines the colors --fg, --bg, --muted, --line, --band.
+CHART_FRAGMENT = """<div class="score-chart">
 <style>
-  :root { --bg:#ffffff; --fg:#1d2733; --muted:#5f6b7a; --line:#e3e7ec; --band:rgba(120,130,140,.09); }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#14181d; --fg:#e6eaef; --muted:#9aa5b1; --line:#2a3139; --band:rgba(200,210,220,.07); }
-  }
-  body { margin:0; background:var(--bg); color:var(--fg);
-         font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  main { max-width:1400px; margin:0 auto; padding:24px 16px 32px; }
-  h1 { font-size:20px; margin:0 0 4px; }
-  p.sub { margin:0 0 16px; color:var(--muted); }
-  .controls { display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; margin-bottom:12px; }
-  .controls label { display:inline-flex; align-items:center; gap:6px; cursor:pointer; user-select:none; }
-  .swatch { width:12px; height:12px; border-radius:3px; display:inline-block; }
-  .sep { width:1px; height:20px; background:var(--line); }
-  button { font:inherit; padding:3px 10px; border:1px solid var(--line); border-radius:6px;
+  .score-chart .controls { display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; margin-bottom:12px; }
+  .score-chart .controls label { display:inline-flex; align-items:center; gap:6px; cursor:pointer; user-select:none; }
+  .score-chart .series-swatch { width:12px; height:12px; border-radius:3px; display:inline-block; }
+  .score-chart .sep { width:1px; height:20px; background:var(--line); }
+  .score-chart button { font:inherit; padding:3px 10px; border:1px solid var(--line); border-radius:6px;
            background:transparent; color:var(--fg); cursor:pointer; }
-  button[aria-pressed="true"] { background:var(--fg); color:var(--bg); }
-  .wrap { position:relative; height:520px; overflow-x:auto; }
-  .inner { position:relative; height:100%; min-width:__MINW__px; }
-  footer { margin-top:10px; color:var(--muted); font-size:12px; }
+  .score-chart button[aria-pressed="true"] { background:var(--fg); color:var(--bg); }
+  .score-chart .wrap { position:relative; height:520px; overflow-x:auto; }
+  .score-chart .inner { position:relative; height:100%; min-width:__MINW__px; }
+  .score-chart .chart-footer { margin-top:10px; color:var(--muted); font-size:12px; }
 </style>
-</head>
-<body>
-<main>
-  <h1>__TITLE__: final scores</h1>
-  <p class="sub">Left to right: heaviest home defeat to biggest home win. The shaded band is draws.</p>
-  <div class="controls" id="controls">
-    <span id="series"></span>
-    <span class="sep"></span>
-    <button id="all">All</button><button id="none">None</button>
-    <span class="sep"></span>
-    <span>Show:</span>
-    <button id="m-share" aria-pressed="true">% of matches</button><button id="m-count" aria-pressed="false">Match count</button>
-  </div>
-  <div class="wrap"><div class="inner"><canvas id="c"></canvas></div></div>
-  <footer>__FOOTER__</footer>
-</main>
+<div class="controls">
+  <span id="series"></span>
+  <span class="sep"></span>
+  <button id="all">All</button><button id="none">None</button>
+  <span class="sep"></span>
+  <span>Show:</span>
+  <button id="m-share" aria-pressed="true">% of matches</button><button id="m-count" aria-pressed="false">Match count</button>
+</div>
+<div class="wrap"><div class="inner"><canvas id="c"></canvas></div></div>
+<p class="chart-footer">__FOOTER__</p>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
 const DATA = __DATA__;
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -352,7 +335,7 @@ const chart = new Chart(document.getElementById("c"), {
 const box = document.getElementById("series");
 DATA.series.forEach((s, i) => {
   const l = document.createElement("label");
-  l.innerHTML = `<input type="checkbox" ${s.visible ? "checked" : ""}><span class="swatch" style="background:${s.color}"></span>${s.label} <span style="color:var(--muted)">(${s.n})</span>`;
+  l.innerHTML = `<input type="checkbox" ${s.visible ? "checked" : ""}><span class="series-swatch" style="background:${s.color}"></span>${s.label} <span style="color:var(--muted)">(${s.n})</span>`;
   l.querySelector("input").addEventListener("change", e => { chart.setDatasetVisibility(i, e.target.checked); chart.update(); });
   box.appendChild(l); box.appendChild(document.createTextNode(" "));
 });
@@ -370,26 +353,92 @@ const setMetric = m => {
 document.getElementById("m-share").onclick = () => setMetric("share");
 document.getElementById("m-count").onclick = () => setMetric("count");
 </script>
+</div>
+"""
+
+HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__ scorelines</title>
+<style>
+  :root { --bg:#ffffff; --fg:#1d2733; --muted:#5f6b7a; --line:#e3e7ec; --band:rgba(120,130,140,.09); }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14181d; --fg:#e6eaef; --muted:#9aa5b1; --line:#2a3139; --band:rgba(200,210,220,.07); }
+  }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:1400px; margin:0 auto; padding:24px 16px 32px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  p.sub { margin:0 0 16px; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>__TITLE__: final scores</h1>
+  <p class="sub">Left to right: heaviest home defeat to biggest home win. The shaded band is draws.</p>
+  __CHART__
+</main>
 </body>
 </html>
 """
 
 
-def write_html(path: Path, title: str, table: pd.DataFrame, seasons: list[str], counts: dict, footer: str):
-    color_lst = season_colors(len(seasons)) + [COMBINED_COLOR]
+def chart_fragment(stats: "ScorelineStats", visible: set[str] | None = None) -> str:
+    """The interactive chart as an HTML fragment. visible: the seasons ticked at first (None = every series)."""
+    color_lst = season_colors(len(stats.seasons)) + [COMBINED_COLOR]
     series = []
-    for color, series_name in zip(color_lst, seasons + [COMBINED]):
+    for color, series_name in zip(color_lst, stats.seasons + [COMBINED]):
         series.append({"label": COMBINED_LABEL if series_name == COMBINED else series_name, "color": color,
-                       "n": int(sum(counts.values())) if series_name == COMBINED else int(counts[series_name]),
-                       "share": [round(float(value), SHARE_DECIMALS) for value in table[f"{series_name} %"]],
-                       "count": [int(value) for value in table[f"{series_name} matches"]],
-                       "visible": True})
-    data = {"labels": table.scoreline.tolist(), "results": table.result.tolist(), "series": series}
-    html = (HTML.replace("__TITLE__", title)
-                .replace("__DATA__", json.dumps(data))
-                .replace("__MINW__", str(max(HTML_MIN_WIDTH_PX, HTML_PX_PER_SCORE * len(table))))
-                .replace("__FOOTER__", footer))
-    path.write_text(html, encoding="utf-8")
+                       "n": int(sum(stats.counts.values())) if series_name == COMBINED else int(stats.counts[series_name]),
+                       "share": [round(float(value), SHARE_DECIMALS) for value in stats.table[f"{series_name} %"]],
+                       "count": [int(value) for value in stats.table[f"{series_name} matches"]],
+                       "visible": visible is None or series_name in visible})
+    data = {"labels": stats.table.scoreline.tolist(), "results": stats.table.result.tolist(), "series": series}
+    return (CHART_FRAGMENT.replace("__DATA__", json.dumps(data))
+                          .replace("__MINW__", str(max(HTML_MIN_WIDTH_PX, HTML_PX_PER_SCORE * len(stats.table))))
+                          .replace("__FOOTER__", stats.footer))
+
+
+def write_html(path: Path, stats: "ScorelineStats"):
+    path.write_text(HTML.replace("__TITLE__", stats.title).replace("__CHART__", chart_fragment(stats)), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------------------- data
+@dataclass
+class ScorelineStats:
+    """The top division's final scores over several seasons, ending with the current one."""
+    league_name: str
+    source_name: str
+    seasons: list[str]          # oldest first; only seasons with at least one match
+    matches: pd.DataFrame
+    table: pd.DataFrame         # scoreline_table()
+    counts: dict[str, int]      # matches per season
+
+    @classmethod
+    def load(cls, cfg: Config, league: League, source, n_seasons: int = DEFAULT_SEASONS, top: int = DEFAULT_TOP,
+             refresh: bool = True) -> "ScorelineStats | None":
+        """Results played before cfg.today; None when there are none. refresh re-downloads the current season."""
+        top_div = league.divs(source.name)[0]
+        seasons = [shift_season(league.current_season, -k) for k in range(n_seasons - 1, -1, -1)]
+        matches = load_matches(source, seasons, [top_div], refresh_season=league.current_season if refresh else None)
+        matches = matches[(matches["div"] == top_div) & (matches.date < pd.Timestamp(cfg.today))]
+        if matches.empty:
+            logger.warning(f"no {league.name} results found for {seasons}")
+            return None
+        seasons = [season_name for season_name in seasons if (matches.season == season_name).any()]
+        return cls(league.name, source.name, seasons, matches, scoreline_table(matches, seasons, top),
+                   matches.groupby("season").size().to_dict())
+
+    @property
+    def title(self) -> str:
+        return f"{self.league_name}, {self.seasons[0]} to {self.seasons[-1]}"
+
+    @property
+    def footer(self) -> str:
+        return (f"Source: {self.source_name}, results up to {self.matches.date.max():%d %b %Y}. "
+                + ", ".join(f"{season_name}: {self.counts[season_name]} matches" for season_name in self.seasons) + ".")
 
 
 # ---------------------------------------------------------------------------------------- main
@@ -412,30 +461,21 @@ def main(argv=None) -> int:
     cfg = read_toml_config(args.config, today)
     lg = cfg.league(args.league)
     source = make_source(args.source or cfg.source, cfg.data_dir)
-    top_div = lg.divs(source.name)[0]
-    seasons = [shift_season(lg.current_season, -k) for k in range(args.seasons - 1, -1, -1)]
-    matches = load_matches(source, seasons, [top_div], refresh_season=None if args.no_refresh else lg.current_season)
-    matches = matches[(matches["div"] == top_div) & (matches.date < pd.Timestamp(today))]
-    if matches.empty:
-        logger.warning(f"no {lg.name} results found for {seasons}")
+    stats = ScorelineStats.load(cfg, lg, source, args.seasons, args.top, refresh=not args.no_refresh)
+    if stats is None:
         return 1
-    seasons = [season_name for season_name in seasons if (matches.season == season_name).any()]
-    counts = matches.groupby("season").size().to_dict()
 
-    table = scoreline_table(matches, seasons, args.top)
-    title = f"{lg.name}, {seasons[0]} to {seasons[-1]}"
     cfg.reports_dir.mkdir(parents=True, exist_ok=True)
     stem = cfg.reports_dir / FILE_STEM.format(league=lg.key)
-    raw = matches[["date", "season", "home", "away", "hg", "ag"]].rename(
+    raw = stats.matches[["date", "season", "home", "away", "hg", "ag"]].rename(
         columns={"hg": "home goals", "ag": "away goals"}).reset_index(drop=True)
-    footer = (f"Source: {source.name}, results up to {matches.date.max():%d %b %Y}. "
-              + ", ".join(f"{season_name}: {counts[season_name]} matches" for season_name in seasons) + ".")
-    write_html(stem.with_suffix(".html"), title, table, seasons, counts, footer)
-    write_excel(stem.with_suffix(".xlsx"), title, table, grid(matches), summary(matches, seasons), raw, seasons)
-    write_png(stem.with_suffix(".png"), title, table, seasons, counts)
+    write_html(stem.with_suffix(".html"), stats)
+    write_excel(stem.with_suffix(".xlsx"), stats.title, stats.table, grid(stats.matches),
+                summary(stats.matches, stats.seasons), raw, stats.seasons)
+    write_png(stem.with_suffix(".png"), stats.title, stats.table, stats.seasons, stats.counts)
 
-    logger.info(f"{title}: " + ", ".join(f"{season_name} {counts[season_name]} matches" for season_name in seasons))
-    logger.info("order: " + " ".join(table.scoreline))
+    logger.info(f"{stats.title}: " + ", ".join(f"{season_name} {stats.counts[season_name]} matches" for season_name in stats.seasons))
+    logger.info("order: " + " ".join(stats.table.scoreline))
     logger.info(f"chart (interactive) -> {stem.with_suffix('.html')}\nexcel -> {stem.with_suffix('.xlsx')}\n"
                 f"image -> {stem.with_suffix('.png')}")
     return 0
