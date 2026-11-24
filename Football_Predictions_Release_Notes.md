@@ -2,7 +2,7 @@
 
 
 
-* # **Web page: https://bernardfr.github.io/Football_Predictions/** 
+* **Web page: https://bernardfr.github.io/Football_Predictions/** 
 * See **`Premier League Game Prediction Model.md`**
 
 # Release Notes
