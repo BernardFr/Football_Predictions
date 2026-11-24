@@ -14,7 +14,7 @@ Site layout (``site/``, set by ``site_dir`` in src/football_predictions.toml)::
 Each page comes from its template in ``templates/`` (Python ``string.Template``, ``${placeholder}``).
 ``templates/footer.html`` goes into every page. A placeholder with no value stops the build.
 The build reads the files in state/<league>/ and the cached results. It downloads nothing.
-GitHub Pages publishes site/ when it is pushed (.github/workflows/pages.yml).
+GitHub Pages publishes site/ when it is pushed (.github/workflows/publish.yml).
 """
 
 import re

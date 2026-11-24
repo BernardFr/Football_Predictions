@@ -186,7 +186,7 @@ git add site && git commit -m "Update site" && git push
 
 `site` writes the website to `site/`. It reads the files in `state/EPL/` and the cached results, and
 downloads nothing. A push that changes `site/` starts the GitHub Pages workflow
-(`.github/workflows/pages.yml`), which publishes the site at
+(`.github/workflows/publish.yml`), which publishes the site at
 https://bernardfr.github.io/Football_Predictions/. The site has four tabs:
 
 | Tab | Content |
