@@ -19,16 +19,32 @@ The report is `reports/EPL_report.xlsx`. Add `--all` to run every enabled league
 
 ## The feedback loop
 
-Run `update` after each matchweek (or daily). It:
+At the end of each matchweek, run these commands:
 
-1. downloads the latest results,
-2. scores every prediction you logged before kickoff (`state/EPL/ledger.csv`), which is your live track record,
-3. refits on all matches played so far, with recent games weighted most, and re-runs the walk-forward backtest of the season,
-4. predicts the fixtures in the next 10 days (from football-data's `fixtures.csv`) and logs them,
-5. rebuilds the Excel report.
+```bash
+football-predictions matchweek                       # about 20 seconds once the ESPN data is cached
+git add site reports state && git commit -m "Matchweek update" && git push   # publishes the website
+```
 
-Then run `football-predictions site` and push `site/` to publish the website (see **Website**).
-Re-tune once a season (`tune`), e.g. in July once the previous season is complete.
+`matchweek` does these steps, in this sequence:
+
+1. Downloads the latest results.
+2. Scores every prediction logged before kickoff (`state/EPL/ledger.csv`): the live track record and the
+   website's Last matchweek.
+3. Refits on all matches played so far, with recent games weighted most, and reruns the walk-forward backtest
+   of the season (the grades and the predictability ranking).
+4. Predicts the games in the next 10 days (from football-data's `fixtures.csv` and ESPN's schedule) and logs them.
+5. Refreshes the ESPN line-ups, goals and keeper and defender records (the Impact Players tables). If ESPN
+   fails, the command logs a warning, keeps the previous player data and continues.
+6. Rebuilds the Excel report and the website.
+
+`matchweek` is the same as `update`, then `lineups-backtest`, then `site`, with one report build instead of
+two. `update` alone does steps 1 to 4 and builds the report. It is enough between matchweeks (for example
+daily), when the player data does not change.
+
+About an hour before kickoff, run `football-predictions lineups` to adjust for the announced starting XIs
+(see **Enhanced predictions from starting XIs**). Re-tune once a season (`tune`), for example in July after the
+previous season is complete.
 
 ## What each prediction contains
 
@@ -246,9 +262,24 @@ Edit their text there.
 ## Commands
 
 ```
-football-predictions download|tune|backtest|predict|update|report|lineups-backtest|lineups|site
+football-predictions download|tune|backtest|predict|update|report|lineups-backtest|lineups|site|matchweek
     [--league EPL | --all] [--season 2025-26] [--source openfootball] [--today YYYY-MM-DD]
 ```
 
 `--source openfootball` uses a GitHub-hosted results mirror (no odds, can lag by weeks).
 `--today` replays the system as of a past date. `python -m pytest -q` runs the tests.
+
+
+
+# RPS: Ranked Probability Score
+
+The **Ranked Probability Score (RPS)** evaluates probabilistic forecasts for ordered categories (such as low, medium, and high) by measuring the squared error between cumulative forecast probabilities and cumulative observed outcomes. Lower scores indicate better forecasts, with `0` representing a perfect forecast. [[1](https://stats.stackexchange.com/questions/112250/understanding-the-rank-probability-score), [2](https://en.wikipedia.org/wiki/Scoring_rule), [3](https://dtcenter.org/book/export/html/2989), [4](https://charts.ecmwf.int/products/mofc_multi_verification_probability_family_rpssmap)]
+
+## How It Works
+
+- **Order sensitivity:** Unlike standard probability scores that treat every incorrect category equally, **RPS penalizes forecasts more when probability mass is placed far from the actual outcome**. For example, predicting probabilities `(0.5, 0.5, 0)` when class `1` occurs yields a better RPS (`0.25`) than predicting `(0.5, 0, 0.5)` (`0.50`).
+- **Cumulative differences:** RPS compares cumulative probabilities across ordered bins rather than isolated point probabilities.
+- **Relationship to Brier Score:** When there are only two ordered categories, RPS reduces to the Brier score. [[1](https://en.wikipedia.org/wiki/Scoring_rule), [2](https://journals.ametsoc.org/view/journals/mwre/98/12/1520-0493_1970_098_0917_trpsat_2_3_co_2.xml), [3](https://pmc.ncbi.nlm.nih.gov/articles/PMC12818272/), [4](https://dtcenter.org/book/export/html/2989), [5](https://charts.ecmwf.int/products/mofc_multi_verification_probability_family_rpssmap)]
+
+As noted in a comment by a single user on [Cross Validated](https://stats.stackexchange.com/questions/112250/understanding-the-rank-probability-score), RPS accounts for both the location and spread of a forecast distribution and is often more useful for comparing models than judging a single model in isolation. For formal definitions and comparisons, see [Wikipedia's scoring rule overview](https://en.wikipedia.org/wiki/Scoring_rule) and [Lokad's CRPS guide](https://www.lokad.com/continuous-ranked-probability-score/). [[1](https://stats.stackexchange.com/questions/112250/understanding-the-rank-probability-score), [2](https://en.wikipedia.org/wiki/Scoring_rule), [3](https://www.lokad.com/continuous-ranked-probability-score/)]
+

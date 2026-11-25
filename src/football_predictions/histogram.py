@@ -429,7 +429,7 @@ class ScorelineStats:
             return None
         seasons = [season_name for season_name in seasons if (matches.season == season_name).any()]
         return cls(league.name, source.name, seasons, matches, scoreline_table(matches, seasons, top),
-                   matches.groupby("season").size().to_dict())
+                   {str(season_name): int(count) for season_name, count in matches.groupby("season").size().items()})
 
     @property
     def title(self) -> str:

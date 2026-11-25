@@ -65,3 +65,35 @@ def test_espn_schedule_failure_keeps_main_fixtures(tmp_path, monkeypatch, caplog
     result = run._espn_fixtures(fixtures, model=None)
     assert result is fixtures
     assert "ESPN schedule unavailable (feed down)" in caplog.text
+
+
+def _recording_run(espn_slug: str | None, lineup_model) -> tuple[Run, list[str]]:
+    """A Run whose steps only record their names, in the order they run."""
+    run, calls = Run.__new__(Run), []
+    run.league = SimpleNamespace(espn=espn_slug)
+    for step in ("settle", "backtest", "predict", "report", "site"):
+        setattr(run, step, lambda *_, step=step, **__: calls.append(step))
+    run._espn = Mock
+    run._lineup_model = lambda client: (calls.append("lineup_model"), lineup_model(client))
+    return run, calls
+
+
+def test_matchweek_runs_every_step_in_order():
+    run, calls = _recording_run("eng.1", lambda client: None)
+    run.matchweek()
+    assert calls == ["settle", "backtest", "predict", "lineup_model", "report", "site"]
+
+
+def test_matchweek_warns_and_still_builds_report_and_site_when_espn_fails(caplog):
+    def broken(client):
+        raise ConnectionError("feed down")
+    run, calls = _recording_run("eng.1", broken)
+    run.matchweek()
+    assert calls[-2:] == ["report", "site"]
+    assert "ESPN player data not refreshed" in caplog.text
+
+
+def test_matchweek_skips_espn_for_a_league_without_a_slug():
+    run, calls = _recording_run(None, lambda client: None)
+    run.matchweek()
+    assert "lineup_model" not in calls

@@ -14,6 +14,8 @@ Commands
   lineups            lineup-adjusted predictions for games in the next 36 hours whose XIs are announced
                      (run about an hour before kickoff; logged to the ledger as variant "lineup")
   site       rebuild the website (site/) from saved files and cached results; push site/ to publish it
+  matchweek  at the end of a matchweek: update + refresh the ESPN player data + report + site
+             (then push site/, reports/ and state/ to publish)
 """
 
 import argparse
@@ -38,7 +40,7 @@ from .report import DRAW_LABEL
 from .sources import load_matches, make_source
 
 PROG_NAME = "football-predictions"
-COMMANDS = ["download", "tune", "backtest", "predict", "update", "report", "lineups-backtest", "lineups", "site"]
+COMMANDS = ["download", "tune", "backtest", "predict", "update", "report", "lineups-backtest", "lineups", "site", "matchweek"]
 DEFAULT_LEAGUE = "EPL"
 REPLAY_HOUR_UTC = 10   # with --today, pretend the run happens at 10:00 UTC that day
 
@@ -304,6 +306,23 @@ class Run:
         self.predict(refresh=False)
         self.report()
 
+    def matchweek(self):
+        """
+        The end of a matchweek: score the logged predictions against the results, backtest, predict the next
+        games, refresh the ESPN player data, then rebuild the report and the website once.
+        An ESPN failure (network, or a changed feed) logs a warning and keeps the previous player data, so it never blocks the predictions.
+        """
+        self.settle(refresh=True)
+        self.backtest(refresh=False)   # settle() already refreshed the current season
+        self.predict(refresh=False)
+        if self.league.espn:
+            try:
+                self._lineup_model(self._espn())
+            except (OSError, KeyError, ValueError) as exc:   # OSError covers network and HTTP errors
+                logger.warning(f"ESPN player data not refreshed ({exc!r}); the report and site use the previous data")
+        self.report()
+        self.site()
+
     # ------------------------------------------------------------- lineups (ESPN)
     def _espn(self) -> EspnClient:
         if not self.league.espn:
@@ -429,20 +448,21 @@ def load_config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespa
 def main(argv=None):
     setup_logger(DEFAULT_CONFIG_PATH.stem)   # football_predictions.toml -> football_predictions.log
     cfg, args = load_config(argv)
-    league_lst = [league for league in cfg.leagues if league.enabled] if args.all else [cfg.league(args.league)]
+    league_lst = [league for league in cfg.leagues if league.enabled] if args.all else [cfg.league(args.league)] # list of leagues to process
     for lg in league_lst:
         run = Run(cfg, lg, args.source or cfg.source)
         logger.info(f"== {lg.name} ({lg.key}) season {lg.current_season}, source {run.source.name}, divisions {run.divs}")
         match args.command:
-            case "download": run.download()
-            case "tune": run.tune()
-            case "backtest": run.backtest(args.season, refresh=True)
-            case "predict": run.predict(refresh=True)
-            case "update": run.update()
-            case "report": run.report()
-            case "lineups-backtest": run.lineups_backtest()
-            case "lineups": run.lineups_predict()
+            case "download": run.download() # download data for the league
+            case "tune": run.tune() # tune model parameters for the league
+            case "backtest": run.backtest(args.season, refresh=True) # perform backtest for the league
+            case "predict": run.predict(refresh=True) # make predictions for the league
+            case "update": run.update() # update league data
+            case "report": run.report() # generate report for the league
+            case "lineups-backtest": run.lineups_backtest() # backtest lineups for the league
+            case "lineups": run.lineups_predict() # predict lineups for the league
             case "site": run.site()
+            case "matchweek": run.matchweek()
     return 0
 
 

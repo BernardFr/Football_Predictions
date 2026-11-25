@@ -52,7 +52,7 @@ def site_data(**overrides) -> website.SiteData:
                             "hg": [1, 2, 0], "ag": [0, 2, 1]})
     seasons = [PREVIOUS_SEASON, SEASON]
     stats = ScorelineStats("Test League", "football_data", seasons, matches, scoreline_table(matches, seasons),
-                           matches.groupby("season").size().to_dict())
+                           {str(season_name): int(count) for season_name, count in matches.groupby("season").size().items()})
     fields = dict(league_name="Test League", season=SEASON, high=.6, medium=.45, upcoming=upcoming, ledger=ledger_frame(),
                   player_impact=impact, valuable_scorers=scorers, scorelines=stats)
     return website.SiteData(**{**fields, **overrides})
@@ -127,6 +127,7 @@ def test_players_page_has_one_section_per_team_with_its_own_players():
 
 def test_scores_page_ticks_only_the_current_season():
     stats = site_data().scorelines
+    assert stats is not None
     fragment = chart_fragment(stats, {SEASON})
     assert f'"label": "{PREVIOUS_SEASON}", "color": ' in fragment
     assert re.search(rf'"label": "{PREVIOUS_SEASON}".*?"visible": false', fragment)

@@ -31,7 +31,7 @@ import pandas as pd
 from custom_logger import custom_logger as logger
 
 from . import report
-from .grading import GRADE_COL, PART_LABELS, SKILL_PREFIX, Grader, SeasonGrades, assign_matchweeks, outcome_label
+from .grading import GRADE_COL, PART_LABELS, SKILL_PREFIX, Grader, SeasonGrades, assign_matchweeks, outcome_labels
 from .histogram import ScorelineStats, chart_fragment
 from .ledger import BASE_VARIANT
 from .model import HIGHEST_PROB_SCORE_COLS
@@ -150,7 +150,7 @@ def grade_display(frame: pd.DataFrame) -> pd.DataFrame:
         elif col == "pick right":
             out[col] = out[col].map({True: HIT_MARK, False: MISS_MARK})
     if {"first game", "last game"} <= set(out):
-        out.insert(out.columns.get_loc("first game"), "dates",
+        out.insert(list(out.columns).index("first game"), "dates",
                    [first if first == last else f"{first} to {last}" for first, last in zip(out["first game"], out["last game"])])
         out = out.drop(columns=["first game", "last game"])
     return out.rename(columns=lambda col: col[0].upper() + col[1:])
@@ -234,10 +234,10 @@ class PredictionsPage(Page):
         hit = (played.pick == played.result).to_numpy()
         table = pd.DataFrame({
             "Date": played.date.map(day), "Home": played.home, "Away": played.away,
-            "Pick": [outcome_label(row.home, row.away, row.pick) for row in played.itertuples()],
+            "Pick": outcome_labels(played, "pick"),
             "Confidence": played.confidence.map(pct), "Predicted score": played.likely_score,
             "Actual score": self._scores(played),
-            "Result": [outcome_label(row.home, row.away, row.result) for row in played.itertuples()],
+            "Result": outcome_labels(played, "result"),
             "Pick right?": [HIT_MARK if is_hit else MISS_MARK for is_hit in hit],
         })
         classes = {"Confidence": NUM_CLASS, "Pick": "pick", "Pick right?": "mark", "Grade": NUM_CLASS}

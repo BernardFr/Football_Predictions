@@ -71,10 +71,11 @@ class Grader:
     def grade(self, predictions: pd.DataFrame) -> pd.DataFrame:
         """Per game: the RPS of the model and of the baseline, the skill per part and the grade."""
         rows = []
-        for pred in predictions.itertuples(index=False):
-            grid = compute_score_grid(pred.xg_home, pred.xg_away, pred.rho, self.max_goals)
-            model = part_rps(grid, pred.hg, pred.ag)
-            base = part_rps(self.baseline_grid, pred.hg, pred.ag)
+        columns = [predictions[col].to_numpy(dtype=float) for col in ("xg_home", "xg_away", "rho", "hg", "ag")]
+        for xg_home, xg_away, rho, home_goals, away_goals in zip(*columns):
+            grid = compute_score_grid(xg_home, xg_away, rho, self.max_goals)
+            model = part_rps(grid, int(home_goals), int(away_goals))
+            base = part_rps(self.baseline_grid, int(home_goals), int(away_goals))
             rows.append({**{MODEL_PREFIX + part: model[part] for part in PART_WEIGHTS},
                          **{BASE_PREFIX + part: base[part] for part in PART_WEIGHTS}})
         graded = pd.DataFrame(rows, index=predictions.index, columns=[prefix + part for prefix in (MODEL_PREFIX, BASE_PREFIX)
@@ -103,7 +104,9 @@ def assign_matchweeks(games: pd.DataFrame, gap_days: int = MATCHWEEK_GAP_DAYS) -
     """Matchweek number (1, 2, ...) of each game, aligned with ``games`` (columns date, home, away)."""
     matchweek_of_date: dict[pd.Timestamp, int] = {}
     matchweek_no, seen, previous = 0, set(), None
-    for game_date, day_games in games.groupby("date", sort=True):
+    dates = pd.DatetimeIndex(games.date)
+    for game_date in dates.unique().sort_values():
+        day_games = games[dates == game_date]
         teams = set(day_games.home) | set(day_games.away)
         if previous is None or (game_date - previous).days >= gap_days or teams & seen:
             matchweek_no, seen = matchweek_no + 1, set()
@@ -153,13 +156,11 @@ class SeasonGrades:
 
     def by_game(self) -> pd.DataFrame:
         games = self.games
-        label = lambda code_col: [outcome_label(row.home, row.away, getattr(row, code_col))   # noqa: E731
-                                  for row in games.itertuples()]
         return pd.DataFrame({
             "matchweek": self.matchweeks, "date": games.date, "home": games.home, "away": games.away,
-            "pick": label("pick"), "confidence": games.confidence, "predicted score": games.likely_score,
+            "pick": outcome_labels(games, "pick"), "confidence": games.confidence, "predicted score": games.likely_score,
             "actual score": games.hg.astype(int).astype(str) + "-" + games.ag.astype(int).astype(str),
-            "result": label("result"), "pick right": self.hits, "grade": self.graded[GRADE_COL],
+            "result": outcome_labels(games, "result"), "pick right": self.hits, "grade": self.graded[GRADE_COL],
             **{label_text: GRADE_SCALE * self.graded[SKILL_PREFIX + part] for part, label_text in PART_LABELS.items()},
         })
 
@@ -167,3 +168,9 @@ class SeasonGrades:
 def outcome_label(home: str, away: str, code: str) -> str:
     """The team name for a home or away win, or DRAW_LABEL."""
     return {"H": home, "A": away}.get(code, DRAW_LABEL)
+
+
+def outcome_labels(games: pd.DataFrame, code_col: str) -> list[str]:
+    """outcome_label() of each game, for the H/D/A codes in ``code_col`` (e.g. "pick" or "result")."""
+    return [outcome_label(home, away, code) for home, away, code
+            in zip(games.home.astype(str).tolist(), games.away.astype(str).tolist(), games[code_col].astype(str).tolist())]
