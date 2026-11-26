@@ -43,7 +43,7 @@ SCORERS_TOP_N = 3
 TOP_SCORERS_N = 5
 GOALKEEPER_ROWS = ["Keeper", "Matches", "Goals conceded", "Conceded per 90 (rank)", "Clean sheets (rank)"]
 GRADE_TITLE = ("prediction grade vs. the previous seasons' scorelines (0 = no better, 100 = certain and right; "
-               "result 50%, goal difference 25%, goals 25%)")
+               "result 80%, goals 20%)")
 PREDICTABILITY_TITLE = ("Teams from most to least predictable: the grade of the predictions for the games they played "
                         "(0 = no better than the previous seasons' scorelines)")
 SCORER_CLASS_LABELS = {"first_goal": "First goal", "equalizer": "Equalizer", "go_ahead": "Go-ahead", "combined": "Combined"}

@@ -65,6 +65,7 @@ class Config:
     tune_grid: dict
     leagues: list[League] = field(default_factory=list)
     lineups: dict = field(default_factory=dict)
+    grade_tuning: dict = field(default_factory=dict)
     today: date = field(default_factory=date.today)
     now: datetime | None = None   # UTC, naive; None = the real clock (set only when replaying a past date)
 
@@ -103,6 +104,7 @@ def read_toml_config(path: str | Path = DEFAULT_CONFIG_PATH,
         tune_grid=raw.get("tune", {}),
         leagues=leagues,
         lineups=raw.get("lineups", {}),
+        grade_tuning=raw.get("grade_tuning", {}),
         today=today,
         now=now,
     )

@@ -41,6 +41,13 @@ ridge = [1.0, 3.0, 10.0]
 feeder_weight = [0.25, 0.5]
 cup_weight = [0.0, 0.5, 1.0]   # 54 combinations in all, a few minutes
 
+[grade_tuning]             # `tune-grade`: which grade weights (PART_WEIGHTS) best rank better forecasters first
+evaluation_seasons = 3     # full seasons before the current one; each one is left out once to test the weights
+simplex_step = 0.05        # weights are searched in steps of 5%
+blend_alphas = [0.25, 0.5, 0.75]   # forecasters that mix the model with this share of the baseline
+bootstrap_samples = 1000
+variants = [{ half_life_days = 150 }, { half_life_days = 365 }, { ridge = 10.0 }]   # model variants in the panel
+
 # current_season: "auto" (Aug-Jul seasons: from July on, the season starting this year) or e.g. "2026-27"
 
 [[leagues]]

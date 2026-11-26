@@ -85,15 +85,32 @@ The grade (`grading.py`) tells how good one prediction was, or a group of predic
 predicted score probabilities with the league's usual scorelines (the previous seasons):
 
 - 0 means no better than the usual scorelines. +100 means certain and right. Below 0 means worse.
-- It weighs the result (50%), the goal difference (25%) and each side's goals (25%). Change the weights
+- It weighs the result (80%) and each side's goals (20%). The goal difference skill is shown but has
+  weight 0, because it adds almost nothing to the result (see **Tuning the weights**). Change the weights
   in `PART_WEIGHTS` in `grading.py`.
 - Each part uses the ranked probability score (RPS), so probability placed near the actual score also earns
   credit. A pick of +1 goal difference scores better than a pick of -1 when the result is +2.
 
 A group of games (a matchweek, a team's games, the season) adds up the RPS of its games before the comparison,
 so one odd game does not dominate it. One game's grade is mostly luck. Judge the model on the matchweek grade
-and the season grade. For comparison, the model graded +6 after 11 matchweeks of 2026-27, and bookmakers
+and the season grade. For comparison, the model graded +7 after 11 matchweeks of 2026-27, and bookmakers
 usually do about 10% better than base rates.
+
+**Tuning the weights.** `football-predictions tune-grade` tests which weights let one matchweek's grade rank a
+better forecaster above a worse one most reliably. A higher grade is not the goal, because the grade is a
+scoring rule and not a model setting. The method is in `grade_weights.py`, and the settings are in
+`[grade_tuning]` in the TOML file.
+
+1. The command backtests the model, some model variants, the bookmakers, blends of the model with the baseline,
+   and the baseline itself on the last 3 full seasons. It uses only the games with odds.
+2. The mean log score of the exact scoreline over all those games sets the true order of the forecasters.
+3. For each weight vector (steps of 5%), the command measures how well the matchweek grades agree with that order.
+4. The command chooses the weights on 2 seasons, tests them on the third, and repeats this for each season.
+5. The command recommends new weights only when the out-of-sample gain is significant. The current season
+   is a final check.
+
+The command writes `reports/<league>_grade_weights.xlsx`. It does not change `PART_WEIGHTS`. To apply the
+recommended weights, edit `PART_WEIGHTS` yourself.
 
 **Matchweeks.** The data has no matchweek numbers, so the dates set the matchweeks. A new matchweek starts after 2 or more
 days with no games, or on a date when a team would play a second time in the matchweek.
@@ -262,7 +279,7 @@ Edit their text there.
 ## Commands
 
 ```
-football-predictions download|tune|backtest|predict|update|report|lineups-backtest|lineups|site|matchweek
+football-predictions download|tune|backtest|predict|update|report|lineups-backtest|lineups|site|matchweek|tune-grade
     [--league EPL | --all] [--season 2025-26] [--source openfootball] [--today YYYY-MM-DD]
 ```
 

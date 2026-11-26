@@ -27,7 +27,7 @@ from typing import Self, cast
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import OptimizeResult, minimize, minimize_scalar
+from scipy.optimize import OptimizeResult, least_squares, minimize, minimize_scalar
 from scipy.stats import poisson
 
 from .cups import CUP_DIV
@@ -53,6 +53,7 @@ NO_ADJUSTMENT = 1.0               # expected-goals multiplier when `adjust` leav
 AVERAGE_RATING = 0.0              # attack/defence of a league-average team
 HIGHEST_PROB_SCORES_N = 3         # most likely scorelines reported, one column each
 HIGHEST_PROB_SCORE_COLS = [f"highest_prob_score_{rank}" for rank in range(1, HIGHEST_PROB_SCORES_N + 1)]
+IMPLIED_XG_START = (1.4, 1.1)     # first guess of (home, away) expected goals for implied_expected_goals()
 
 @dataclass
 class Hyper:
@@ -204,6 +205,20 @@ def compute_score_grid(lam: float, mu: float, rho: float, max_goals: int = DEFAU
     # apply Dixon-Coles tau correction to the independent Poisson probabilities
     grid_probs = grid_probs * _tau(x, y, np.full_like(grid_probs, lam), np.full_like(grid_probs, mu), rho)
     return grid_probs / grid_probs.sum()
+
+
+def implied_expected_goals(p_home: float, p_away: float, rho: float,
+                           max_goals: int = DEFAULT_MAX_GOALS) -> tuple[float, float]:
+    """
+    The home and away expected goals whose score grid gives these home-win and away-win probabilities.
+    Two probabilities fix two unknowns, so the bookmakers' H/D/A odds give a full score grid.
+    """
+    def residuals(log_xg: np.ndarray) -> list[float]:
+        grid_probs = compute_score_grid(*np.exp(log_xg), rho, max_goals)
+        return [np.tril(grid_probs, -1).sum() - p_home, np.triu(grid_probs, 1).sum() - p_away]
+
+    home_xg, away_xg = np.exp(least_squares(residuals, np.log(IMPLIED_XG_START)).x)
+    return float(home_xg), float(away_xg)
 
 
 def highest_prob_scorelines(grid_probs: np.ndarray, n: int = HIGHEST_PROB_SCORES_N) -> list[str]:

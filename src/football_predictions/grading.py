@@ -5,9 +5,9 @@ The baseline is the league's own scoreline frequencies (e.g. the previous season
 three parts. Each part is the ranked probability score (RPS) of an ordered distribution, so probability placed
 near the actual outcome earns credit, not only probability placed on it:
 
-    result           home win > draw > away win                        weight 50%
-    goal difference  -max_goals .. +max_goals, home minus away         weight 25%
-    goals            home goals and away goals, 0 .. max_goals each    weight 25%
+    result           home win > draw > away win                        weight 80%
+    goal difference  -max_goals .. +max_goals, home minus away         weight 0% (reported, not weighted)
+    goals            home goals and away goals, 0 .. max_goals each    weight 20%
 
 Skill of a part = 1 - RPS_model / RPS_baseline: 0 = no better than the baseline, 1 = certain and right,
 below 0 = worse than the baseline. The grade is the weighted skill, x100 (e.g. +25).
@@ -23,7 +23,7 @@ import pandas as pd
 
 from .model import DEFAULT_MAX_GOALS, compute_score_grid
 
-PART_WEIGHTS = {"result": 0.50, "goal_diff": 0.25, "goals": 0.25}
+PART_WEIGHTS = {"result": 0.80, "goal_diff": 0.0, "goals": 0.20}   # from `tune-grade` (grade_weights.py)
 GRADE_SCALE = 100
 MODEL_PREFIX, BASE_PREFIX, SKILL_PREFIX = "rps_", "base_rps_", "skill_"
 GRADE_COL = "grade"
@@ -87,16 +87,16 @@ class Grader:
         return graded
 
     @staticmethod
-    def weighted(skills: pd.DataFrame | pd.Series) -> pd.Series | float:
-        return GRADE_SCALE * sum(weight * skills[SKILL_PREFIX + part] for part, weight in PART_WEIGHTS.items())
+    def weighted(skills: pd.DataFrame | pd.Series, weights: dict[str, float] = PART_WEIGHTS) -> pd.Series | float:
+        return GRADE_SCALE * sum(weight * skills[SKILL_PREFIX + part] for part, weight in weights.items())
 
     @classmethod
-    def pooled(cls, graded: pd.DataFrame) -> pd.Series:
+    def pooled(cls, graded: pd.DataFrame, weights: dict[str, float] = PART_WEIGHTS) -> pd.Series:
         """A group of games (e.g. a matchweek): skill per part from the summed RPS, and the grade."""
         totals = graded.sum()
         skills = pd.Series({SKILL_PREFIX + part: skill(totals[MODEL_PREFIX + part], totals[BASE_PREFIX + part])
                             for part in PART_WEIGHTS})
-        skills[GRADE_COL] = cls.weighted(skills)
+        skills[GRADE_COL] = cls.weighted(skills, weights)
         return skills
 
 

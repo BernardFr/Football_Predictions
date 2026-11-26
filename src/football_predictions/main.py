@@ -14,6 +14,8 @@ Commands
   lineups            lineup-adjusted predictions for games in the next 36 hours whose XIs are announced
                      (run about an hour before kickoff; logged to the ledger as variant "lineup")
   site       rebuild the website (site/) from saved files and cached results; push site/ to publish it
+  tune-grade study the grade weights (PART_WEIGHTS in grading.py): which weights best rank better forecasters
+             above worse ones; writes reports/<league>_grade_weights.xlsx and only recommends
   matchweek  at the end of a matchweek: update + refresh the ESPN player data + report + site
              (then push site/, reports/ and state/ to publish)
 """
@@ -31,7 +33,7 @@ from custom_logger import custom_logger as logger
 from custom_logger import setup_logger
 
 from . import backtest as bt
-from . import cups, defence, grading, histogram, ledger, lineups, report, scorers, teammap, website
+from . import cups, defence, grade_weights, grading, histogram, ledger, lineups, report, scorers, teammap, website
 from .config import DEFAULT_CONFIG_PATH, Config, read_toml_config, shift_season
 from .csvio import read_csv, write_csv
 from .espn import DEFAULT_DELAY_SECONDS, DEFAULT_UA, STATE_POST, STATE_PRE, EspnClient, has_lineups, parse_lineups
@@ -40,7 +42,7 @@ from .report import DRAW_LABEL
 from .sources import load_matches, make_source
 
 PROG_NAME = "football-predictions"
-COMMANDS = ["download", "tune", "backtest", "predict", "update", "report", "lineups-backtest", "lineups", "site", "matchweek"]
+COMMANDS = ["download", "tune", "backtest", "predict", "update", "report", "lineups-backtest", "lineups", "site", "matchweek", "tune-grade"]
 DEFAULT_LEAGUE = "EPL"
 REPLAY_HOUR_UTC = 10   # with --today, pretend the run happens at 10:00 UTC that day
 
@@ -68,6 +70,7 @@ JSON_INDENT = 2
 NO_ADJUSTMENT = 1.0                    # multiplier when adjustments.csv leaves a column out
 ESPN_SCHEDULE = "espn"                 # `schedule` value for games found only on ESPN
 DEFAULT_LINEUP_SEASONS = 2
+DEFAULT_GRADE_EVALUATION_SEASONS = 3   # tune-grade: full seasons before the current one that choose the weights
 LINEUP_VARIANT = "lineup"
 LINEUP_WINDOW_HOURS = 36               # `lineups` covers games kicking off within this window
 LINEUP_GRACE_HOURS = 1                 # ... or that were due to start up to this long ago
@@ -278,9 +281,9 @@ class Run:
                      defence_records=read(DEFENCE_FILE, ()), grader=self.grader())
         logger.info(f"report -> {path}")
 
-    def grader(self) -> grading.Grader | None:
-        """Grades predictions against the top division's scorelines of the previous seasons (from the cache)."""
-        seasons = [shift_season(self.season, -k) for k in range(self.cfg.history_seasons, 0, -1)]
+    def grader(self, season: str | None = None) -> grading.Grader | None:
+        """Grades predictions against the top division's scorelines of the seasons before ``season`` (from the cache)."""
+        seasons = [shift_season(season or self.season, -k) for k in range(self.cfg.history_seasons, 0, -1)]
         history = load_matches(self.source, seasons, [self.top])
         history = history[history["div"] == self.top]
         if history.empty:
@@ -322,6 +325,50 @@ class Run:
                 logger.warning(f"ESPN player data not refreshed ({exc!r}); the report and site use the previous data")
         self.report()
         self.site()
+
+    def tune_grade(self):
+        """Study the grade weights on walk-forward backtests (weekly refits) of past seasons; see grade_weights.py."""
+        settings = self.cfg.grade_tuning
+        n_seasons = int(settings.get("evaluation_seasons", DEFAULT_GRADE_EVALUATION_SEASONS))
+        evaluation_seasons = [shift_season(self.season, -k) for k in range(n_seasons, 0, -1)]
+        score_dict = {season: self._grade_scores(season) for season in [*evaluation_seasons, self.season]}
+        score_dict = {season: scores for season, scores in score_dict.items() if scores is not None}
+        cube = grade_weights.SkillCube.from_scores(pd.concat([scores for scores, _ in score_dict.values()], ignore_index=True))
+        study = grade_weights.WeightStudy(
+            step=float(settings.get("simplex_step", grade_weights.DEFAULT_SIMPLEX_STEP)),
+            bootstrap_samples=int(settings.get("bootstrap_samples", grade_weights.DEFAULT_BOOTSTRAP_SAMPLES)))
+        has_current = self.season in score_dict
+        result = study.run(cube.select([season for season in evaluation_seasons if season in score_dict]),
+                           cube.select([self.season]) if has_current else None)
+        sensitivity = None
+        if has_current:
+            current_games = score_dict[self.season][1]
+            sensitivity = grade_weights.ranking_sensitivity(self.grader().grade(current_games), current_games,
+                                                            grade_weights.sensitivity_candidates(result.best))
+        path = self.cfg.reports_dir / grade_weights.REPORT_FILE.format(league=self.league.key)
+        grade_weights.write_report(path, result, sensitivity)
+        logger.info("grade weights:\n" + result.summary.to_string(index=False) + "\n"
+                    + result.folds.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
+        logger.info(f"{result.recommendation} (report -> {path})")
+
+    def _grade_scores(self, season: str) -> tuple[pd.DataFrame, pd.DataFrame] | None:
+        """The forecaster panel's part scores for one season, and the model's backtest; None when there is no data."""
+        settings, hyper = self.cfg.grade_tuning, self.hyper()
+        grader = self.grader(season)
+        if grader is None:
+            return None
+        variants = {grade_weights.variant_name(override): Hyper(**{**hyper.to_dict(), **override})
+                    for override in settings.get("variants", [])}
+        logger.info(f"tune-grade: walk-forward backtests of {season} (model and {len(variants)} variant(s), weekly refits)")
+        match_df = self.matches(season)
+        model_bt = bt.walk_forward(match_df, season, self.top, hyper, refit=bt.REFIT_WEEKLY)
+        if model_bt.empty:
+            return None
+        variant_bts = {name: bt.walk_forward(match_df, season, self.top, variant_hyper, refit=bt.REFIT_WEEKLY)
+                       for name, variant_hyper in variants.items()}
+        panel = grade_weights.ForecasterPanel(grader.baseline_grid,
+                                              settings.get("blend_alphas", grade_weights.DEFAULT_BLEND_ALPHAS))
+        return panel.scores(season, model_bt, variant_bts), model_bt.sort_values(grade_weights.GAME_KEYS).reset_index(drop=True)
 
     # ------------------------------------------------------------- lineups (ESPN)
     def _espn(self) -> EspnClient:
@@ -463,6 +510,7 @@ def main(argv=None):
             case "lineups": run.lineups_predict() # predict lineups for the league
             case "site": run.site()
             case "matchweek": run.matchweek()
+            case "tune-grade": run.tune_grade()
     return 0
 
 
