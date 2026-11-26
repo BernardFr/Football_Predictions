@@ -74,7 +74,7 @@ def _recording_run(espn_slug: str | None, lineup_model) -> tuple[Run, list[str]]
     for step in ("settle", "backtest", "predict", "report", "site"):
         setattr(run, step, lambda *_, step=step, **__: calls.append(step))
     run._espn = Mock
-    run._lineup_model = lambda client: (calls.append("lineup_model"), lineup_model(client))
+    setattr(run, "_lineup_model", lambda client: (calls.append("lineup_model"), lineup_model(client)))
     return run, calls
 
 

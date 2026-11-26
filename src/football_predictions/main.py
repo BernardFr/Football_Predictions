@@ -340,10 +340,10 @@ class Run:
         has_current = self.season in score_dict
         result = study.run(cube.select([season for season in evaluation_seasons if season in score_dict]),
                            cube.select([self.season]) if has_current else None)
-        sensitivity = None
-        if has_current:
+        sensitivity, grader = None, self.grader()
+        if has_current and grader is not None:
             current_games = score_dict[self.season][1]
-            sensitivity = grade_weights.ranking_sensitivity(self.grader().grade(current_games), current_games,
+            sensitivity = grade_weights.ranking_sensitivity(grader.grade(current_games), current_games,
                                                             grade_weights.sensitivity_candidates(result.best))
         path = self.cfg.reports_dir / grade_weights.REPORT_FILE.format(league=self.league.key)
         grade_weights.write_report(path, result, sensitivity)

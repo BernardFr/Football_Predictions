@@ -214,7 +214,8 @@ def implied_expected_goals(p_home: float, p_away: float, rho: float,
     Two probabilities fix two unknowns, so the bookmakers' H/D/A odds give a full score grid.
     """
     def residuals(log_xg: np.ndarray) -> list[float]:
-        grid_probs = compute_score_grid(*np.exp(log_xg), rho, max_goals)
+        home_xg, away_xg = np.exp(log_xg)
+        grid_probs = compute_score_grid(float(home_xg), float(away_xg), rho, max_goals)
         return [np.tril(grid_probs, -1).sum() - p_home, np.triu(grid_probs, 1).sum() - p_away]
 
     home_xg, away_xg = np.exp(least_squares(residuals, np.log(IMPLIED_XG_START)).x)

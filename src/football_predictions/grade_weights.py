@@ -65,6 +65,11 @@ def variant_name(override: dict) -> str:
     return ", ".join(f"{key}={value}" for key, value in override.items())
 
 
+def weights_of(row: pd.Series) -> dict[str, float]:
+    """The weight of each part in a row that has one column per part."""
+    return {part: float(row[part]) for part in PARTS}
+
+
 def simplex_grid(step: float = DEFAULT_SIMPLEX_STEP) -> pd.DataFrame:
     """Every weight vector over PARTS with entries that are multiples of ``step`` and add up to 1."""
     n_steps = round(1 / step)
@@ -93,7 +98,7 @@ class ForecasterPanel:
         games = games[games[ODDS_COLS].notna().all(axis=1)].reset_index(drop=True)
         bookie_probs = implied_probs(games.odds_h, games.odds_d, games.odds_a)
         rows = []
-        for game_no, game in games.iterrows():
+        for game_no, (_, game) in enumerate(games.iterrows()):
             base = part_rps(self.baseline_grid, int(game.hg), int(game.ag))
             for forecaster, grid in self._grids(game, list(variant_bts), bookie_probs[game_no]).items():
                 rows.append({"season": season, "matchweek": int(game.matchweek), "game": game_no, "forecaster": forecaster,
@@ -226,11 +231,11 @@ class WeightStudy:
         if not len(diffs):
             raise ValueError("no forecaster pair has a reliable true order: add evaluation seasons")
         simplex = evaluate(diffs, self.simplex).sort_values(OBJECTIVE_COL, ascending=False).reset_index(drop=True)
-        best = simplex.iloc[0][PARTS].to_dict()
+        best = weights_of(simplex.iloc[0])
         folds, oos_grades, current_grades = self._folds(evaluation, diffs)
         gain, ci_low, ci_high = self._bootstrap_gain(np.concatenate(oos_grades, axis=1), np.concatenate(current_grades, axis=1))
         improves = ci_low > 0
-        recommended = best if improves else self.current.iloc[0].to_dict()
+        recommended = best if improves else weights_of(self.current.iloc[0])
         recommendation = (f"change PART_WEIGHTS to {weights_label(best)}: the out-of-sample gain is significant"
                           if improves else f"keep PART_WEIGHTS at {weights_label(recommended)}: no weights do "
                                            f"significantly better out of sample")
@@ -259,7 +264,7 @@ class WeightStudy:
             train, test = diffs[:, seasons != season], diffs[:, seasons == season]
             fold_best = evaluate(train, self.simplex).sort_values(OBJECTIVE_COL, ascending=False).iloc[0][PARTS]
             scored = evaluate(test, pd.concat([self.current, fold_best.to_frame().T], ignore_index=True))
-            rows.append({"season left out": season, "weights chosen on the others": weights_label(fold_best.to_dict()),
+            rows.append({"season left out": season, "weights chosen on the others": weights_label(weights_of(fold_best)),
                          "mean z, current": scored[OBJECTIVE_COL].iloc[0], "mean z, chosen": scored[OBJECTIVE_COL].iloc[1],
                          "concordance, current": scored[CONCORDANCE_COL].iloc[0],
                          "concordance, chosen": scored[CONCORDANCE_COL].iloc[1]})

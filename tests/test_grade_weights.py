@@ -2,6 +2,7 @@
 """Grade-weight study: odds -> expected goals, simplex, objective, forecaster ranking on simulated seasons, report."""
 
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -40,8 +41,8 @@ def test_simplex_points_add_up_to_one_and_include_the_current_weights():
 
 def test_pooled_grade_uses_the_weights_given():
     skills = pd.Series({SKILL_PREFIX + "result": 0.1, SKILL_PREFIX + "goal_diff": 0.2, SKILL_PREFIX + "goals": 0.4})
-    assert Grader.weighted(skills) == pytest.approx(100 * sum(weight * skills[SKILL_PREFIX + part] for part, weight in PART_WEIGHTS.items()))
-    assert Grader.weighted(skills, {"result": 0, "goal_diff": 0, "goals": 1}) == pytest.approx(40)
+    assert cast(float, Grader.weighted(skills)) == pytest.approx(100 * sum(weight * skills[SKILL_PREFIX + part] for part, weight in PART_WEIGHTS.items()))
+    assert cast(float, Grader.weighted(skills, {"result": 0, "goal_diff": 0, "goals": 1})) == pytest.approx(40)
 
 
 def test_objective_prefers_the_part_that_carries_the_signal():
@@ -62,7 +63,7 @@ def simulated_season(season: str, rng: np.random.Generator) -> tuple[pd.DataFram
         order = rng.permutation(N_TEAMS)
         for home, away in zip(order[::2], order[1::2]):
             true_home, true_away = np.exp(0.3 + strength[home] - strength[away] * 0.5), np.exp(0.1 + strength[away] - strength[home] * 0.5)
-            truth = compute_score_grid(true_home, true_away, RHO, MAX_GOALS)
+            truth = compute_score_grid(float(true_home), float(true_away), RHO, MAX_GOALS)
             flat = rng.choice(truth.size, p=truth.ravel())
             home_goals, away_goals = divmod(flat, MAX_GOALS + 1)
             rows.append({"date": start + pd.Timedelta(weeks=week), "home": f"T{home}", "away": f"T{away}",
@@ -121,9 +122,9 @@ def test_sensitivity_of_the_current_weights_to_themselves_is_perfect(study):
     _, result, baseline, games = study
     sensitivity = gw.ranking_sensitivity(Grader(baseline).grade(games), games, gw.sensitivity_candidates(result.best))
     current = sensitivity.set_index("weights").loc[gw.CANDIDATE_CURRENT]
-    assert current["team ranking vs current (Spearman)"] == pytest.approx(1)
-    assert current["largest team rank change"] == 0
-    assert current["season grade"] == pytest.approx(Grader.pooled(Grader(baseline).grade(games))[GRADE_COL])
+    assert cast(float, current["team ranking vs current (Spearman)"]) == pytest.approx(1)
+    assert cast(int, current["largest team rank change"]) == 0
+    assert cast(float, current["season grade"]) == pytest.approx(Grader.pooled(Grader(baseline).grade(games))[GRADE_COL])
 
 
 def test_report_has_every_sheet(study):
