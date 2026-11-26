@@ -81,6 +81,7 @@ td.mark { text-align: center; font-weight: 700; }
 
 /* Impact players: a team picker, then the team's tables as cards. */
 .team-picker { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; margin: 8px 0 0; }
+.team-picker-label { font-size: 21px; font-weight: 700; color: var(--accent); }   /* h2 size */
 .team-picker select { font: inherit; font-weight: 400; padding: 4px 8px; border: 1px solid var(--rule); border-radius: 4px; background: var(--bg); }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 14px; }
 .card { background: var(--card); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; min-width: 0; }
