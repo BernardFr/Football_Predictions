@@ -19,7 +19,7 @@ The report is `reports/EPL_report.xlsx`. Add `--all` to run every enabled league
 
 ## The feedback loop
 
-At the end of each matchweek, run these commands:
+**At the end of each matchweek**, run these commands:
 
 ```bash
 football-predictions matchweek                       # about 20 seconds once the ESPN data is cached
